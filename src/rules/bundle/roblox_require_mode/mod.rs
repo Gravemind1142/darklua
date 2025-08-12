@@ -44,6 +44,7 @@ struct RequireRobloxProcessor<'a, 'b, 'resources> {
     resources: &'resources Resources,
     errors: Vec<String>,
     current_block_clone: Block,
+    root_block_clone: Block,
 }
 
 impl<'a, 'b, 'resources> RequireRobloxProcessor<'a, 'b, 'resources> {
@@ -68,7 +69,8 @@ impl<'a, 'b, 'resources> RequireRobloxProcessor<'a, 'b, 'resources> {
             skip_module_paths: Default::default(),
             resources: context.resources(),
             errors: Vec::new(),
-            current_block_clone,
+            current_block_clone: current_block_clone.clone(),
+            root_block_clone: current_block_clone,
         }
     }
 
@@ -84,13 +86,41 @@ impl<'a, 'b, 'resources> RequireRobloxProcessor<'a, 'b, 'resources> {
     fn parse_expression_to_instance_path(&self, expression: &Expression) -> Option<InstancePath> {
         match expression {
             Expression::Identifier(id) => match id.get_name().as_str() {
-                "script" => Some(InstancePath::from_script()),
-                "game" => Some(InstancePath::from_root()),
-                other => self.resolve_identifier_to_instance_path(other),
+                "script" => {
+                    log::trace!(
+                        "parse_expression_to_instance_path: Identifier(script) -> InstancePath::script"
+                    );
+                    Some(InstancePath::from_script())
+                }
+                "game" => {
+                    log::trace!(
+                        "parse_expression_to_instance_path: Identifier(game) -> InstancePath::root"
+                    );
+                    Some(InstancePath::from_root())
+                }
+                other => {
+                    log::trace!(
+                        "parse_expression_to_instance_path: Identifier({}) -> resolve_identifier_to_instance_path",
+                        other
+                    );
+                    let resolved = self.resolve_identifier_to_instance_path(other);
+                    if resolved.is_none() {
+                        log::warn!(
+                            "resolve_identifier_to_instance_path failed for Identifier({})",
+                            other
+                        );
+                    }
+                    resolved
+                }
             },
             Expression::Field(field) => {
                 let mut base = self.parse_prefix_to_instance_path(field.get_prefix())?;
                 let name = field.get_field().get_name();
+                log::trace!(
+                    "parse_expression_to_instance_path: Field(.{}) on prefix -> {}",
+                    name,
+                    if name == "Parent" { "Parent" } else { "Child" }
+                );
                 if name == "Parent" {
                     base.parent();
                 } else {
@@ -102,29 +132,76 @@ impl<'a, 'b, 'resources> RequireRobloxProcessor<'a, 'b, 'resources> {
                 let mut base = self.parse_prefix_to_instance_path(index.get_prefix())?;
                 let child_name = match index.get_index() {
                     Expression::String(s) => s.get_string_value()?.to_string(),
-                    _ => return None,
+                    other => {
+                        log::warn!(
+                            "parse_expression_to_instance_path: Index with non-string index: cannot handle this expression"
+                        );
+                        log::warn!("index expression kind not supported for instance path");
+                        return None;
+                    }
                 };
+                log::trace!(
+                    "parse_expression_to_instance_path: Index([\"{}\"]) on prefix",
+                    child_name
+                );
                 base.child(child_name);
                 Some(base)
             }
-            Expression::Call(call) => self.parse_call_to_instance_path(call),
+            Expression::Call(call) => {
+                log::trace!("parse_expression_to_instance_path: Call -> parse_call_to_instance_path");
+                self.parse_call_to_instance_path(call)
+            }
             Expression::Parenthese(paren) => {
+                log::trace!("parse_expression_to_instance_path: Parenthese -> unwrap and recurse");
                 self.parse_expression_to_instance_path(paren.inner_expression())
             }
-            _ => None,
+            _ => {
+                log::warn!(
+                    "parse_expression_to_instance_path: unsupported expression kind for instance path resolution"
+                );
+                None
+            }
         }
     }
 
     fn parse_prefix_to_instance_path(&self, prefix: &Prefix) -> Option<InstancePath> {
         match prefix {
             Prefix::Identifier(id) => match id.get_name().as_str() {
-                "script" => Some(InstancePath::from_script()),
-                "game" => Some(InstancePath::from_root()),
-                other => self.resolve_identifier_to_instance_path(other),
+                "script" => {
+                    log::trace!(
+                        "parse_prefix_to_instance_path: Identifier(script) -> InstancePath::script"
+                    );
+                    Some(InstancePath::from_script())
+                }
+                "game" => {
+                    log::trace!(
+                        "parse_prefix_to_instance_path: Identifier(game) -> InstancePath::root"
+                    );
+                    Some(InstancePath::from_root())
+                }
+                other => {
+                    log::trace!(
+                        "parse_prefix_to_instance_path: Identifier({}) -> resolve_identifier_to_instance_path",
+                        other
+                    );
+                    let resolved = self.resolve_identifier_to_instance_path(other);
+                    if resolved.is_none() {
+                        log::warn!(
+                            "resolve_identifier_to_instance_path failed for Identifier({})",
+                            other
+                        );
+                    }
+                    resolved
+                }
             },
             Prefix::Field(field) => {
                 let mut base = self.parse_prefix_to_instance_path(field.get_prefix())?;
                 let name = field.get_field().get_name();
+                log::trace!(
+                    "parse_prefix_to_instance_path: Field(.{}) on prefix -> {}",
+                    name,
+                    if name == "Parent" { "Parent" } else { "Child" }
+                );
                 if name == "Parent" {
                     base.parent();
                 } else {
@@ -136,13 +213,26 @@ impl<'a, 'b, 'resources> RequireRobloxProcessor<'a, 'b, 'resources> {
                 let mut base = self.parse_prefix_to_instance_path(index.get_prefix())?;
                 let child_name = match index.get_index() {
                     Expression::String(s) => s.get_string_value()?.to_string(),
-                    _ => return None,
+                    _ => {
+                        log::warn!(
+                            "parse_prefix_to_instance_path: Index with non-string index: cannot handle this prefix"
+                        );
+                        return None;
+                    }
                 };
+                log::trace!(
+                    "parse_prefix_to_instance_path: Index([\"{}\"]) on prefix",
+                    child_name
+                );
                 base.child(child_name);
                 Some(base)
             }
-            Prefix::Call(call) => self.parse_call_to_instance_path(call),
+            Prefix::Call(call) => {
+                log::trace!("parse_prefix_to_instance_path: Call -> parse_call_to_instance_path");
+                self.parse_call_to_instance_path(call)
+            }
             Prefix::Parenthese(paren) => {
+                log::trace!("parse_prefix_to_instance_path: Parenthese -> unwrap and recurse");
                 self.parse_expression_to_instance_path(paren.inner_expression())
             }
         }
@@ -151,51 +241,148 @@ impl<'a, 'b, 'resources> RequireRobloxProcessor<'a, 'b, 'resources> {
     fn parse_call_to_instance_path(&self, call: &FunctionCall) -> Option<InstancePath> {
         let method = call.get_method().map(|m| m.get_name().as_str());
         let mut base = self.parse_prefix_to_instance_path(call.get_prefix())?;
+        log::trace!(
+            "parse_call_to_instance_path: method = {:?}",
+            method
+        );
         match method {
             Some("GetService") => {
                 let child = self.read_first_string_argument(call)?;
+                log::trace!(
+                    "parse_call_to_instance_path: GetService(\"{}\")",
+                    child
+                );
                 base.child(child);
                 Some(base)
             }
             Some("WaitForChild") | Some("FindFirstChild") => {
                 let child = self.read_first_string_argument(call)?;
+                log::trace!(
+                    "parse_call_to_instance_path: {}(\"{}\")",
+                    method.unwrap(),
+                    child
+                );
                 base.child(child);
                 Some(base)
             }
             Some("FindFirstAncestor") => {
                 let ancestor = self.read_first_string_argument(call)?;
+                log::trace!(
+                    "parse_call_to_instance_path: FindFirstAncestor(\"{}\")",
+                    ancestor
+                );
                 base.ancestor(ancestor);
                 Some(base)
             }
-            _ => None,
+            _ => {
+                log::trace!(
+                    "parse_call_to_instance_path: unsupported method {:?} for instance path",
+                    method
+                );
+                None
+            }
         }
     }
 
     fn read_first_string_argument(&self, call: &FunctionCall) -> Option<String> {
         match call.get_arguments() {
-            Arguments::String(s) => s.get_string_value().map(|s| s.to_string()),
+            Arguments::String(s) => {
+                let value = s.get_string_value().map(|s| s.to_string());
+                if value.is_none() {
+                    log::warn!(
+                        "read_first_string_argument: got String argument but could not get value"
+                    );
+                } else {
+                    log::trace!(
+                        "read_first_string_argument: String(\"{}\")",
+                        value.as_ref().unwrap()
+                    );
+                }
+                value
+            }
             Arguments::Tuple(tuple) if tuple.len() >= 1 => {
-                match tuple.iter_values().next().unwrap() {
-                    Expression::String(s) => s.get_string_value().map(|s| s.to_string()),
-                    _ => None,
+                let first = tuple.iter_values().next().unwrap();
+                match first {
+                    Expression::String(s) => {
+                        let value = s.get_string_value().map(|s| s.to_string());
+                        if value.is_none() {
+                            log::warn!(
+                                "read_first_string_argument: first tuple arg is String but could not get value"
+                            );
+                        } else {
+                            log::trace!(
+                                "read_first_string_argument: Tuple first arg String(\"{}\")",
+                                value.as_ref().unwrap()
+                            );
+                        }
+                        value
+                    }
+                    _ => {
+                        log::warn!(
+                            "read_first_string_argument: first tuple arg is not a String expression"
+                        );
+                        None
+                    }
                 }
             }
-            _ => None,
+            _ => {
+                log::warn!("read_first_string_argument: unsupported arguments kind");
+                None
+            }
         }
     }
 
     fn resolve_identifier_to_instance_path(&self, name: &str) -> Option<InstancePath> {
-        for statement in self.current_block_clone.iter_statements() {
-            if let Statement::LocalAssign(local) = statement {
-                for (var, value) in local.iter_variables().zip(local.iter_values()) {
-                    if var.get_identifier().get_name() == name {
-                        if let Some(path) = self.parse_expression_to_instance_path(value) {
-                            return Some(path);
+        fn resolve_in_block(
+            this: &RequireRobloxProcessor<'_, '_, '_>,
+            name: &str,
+            block: &Block,
+        ) -> Option<InstancePath> {
+            for statement in block.iter_statements() {
+                if let Statement::LocalAssign(local) = statement {
+                    for (var, value) in local.iter_variables().zip(local.iter_values()) {
+                        if var.get_identifier().get_name() == name {
+                            log::trace!(
+                                "resolve_identifier_to_instance_path: found local `{}`; try resolving its value",
+                                name
+                            );
+                            if let Some(path) = this.parse_expression_to_instance_path(value) {
+                                log::trace!(
+                                    "resolve_identifier_to_instance_path: successfully resolved `{}`",
+                                    name
+                                );
+                                return Some(path);
+                            } else {
+                                log::warn!(
+                                    "resolve_identifier_to_instance_path: failed to resolve value for `{}`",
+                                    name
+                                );
+                            }
                         }
                     }
                 }
             }
+            None
         }
+
+        if let Some(p) = resolve_in_block(self, name, &self.current_block_clone) {
+            return Some(p);
+        }
+        log::trace!(
+            "resolve_identifier_to_instance_path: no matching local found for `{}` in current scope",
+            name
+        );
+        if let Some(p) = resolve_in_block(self, name, &self.root_block_clone) {
+            log::trace!(
+                "resolve_identifier_to_instance_path: found `{}` in root scope",
+                name
+            );
+            return Some(p);
+        }
+        log::warn!(
+            "resolve_identifier_to_instance_path: no matching local found for `{}` in root scope",
+            name
+        );
         None
     }
 
@@ -224,17 +411,50 @@ impl<'a, 'b, 'resources> RequireRobloxProcessor<'a, 'b, 'resources> {
         s
     }
 
+
     fn require_call(&self, call: &FunctionCall) -> Option<(String, PathBuf)> {
         if !is_require_call(call, self) {
             return None;
         }
+        log::trace!(
+            "require_call: processing require in `{}`",
+            self.source.display()
+        );
         let instance_path = match call.get_arguments() {
             Arguments::Tuple(tuple) if tuple.len() == 1 => {
+                log::trace!("require_call: arguments is Tuple(len=1) -> attempt to resolve path from single argument");
                 let expr = tuple.iter_values().next().unwrap();
                 self.parse_expression_to_instance_path(expr)
             }
-            _ => None,
-        }?;
+            Arguments::Tuple(tuple) => {
+                log::trace!(
+                    "require_call: arguments is Tuple(len={}), expected len=1",
+                    tuple.len()
+                );
+                None
+            }
+            Arguments::String(_) => {
+                log::warn!(
+                    "require_call: arguments is a single String (unsupported for instance path)"
+                );
+                None
+            }
+            _ => {
+                log::warn!("require_call: unsupported arguments variant for require call");
+                None
+            }
+        };
+        if instance_path.is_none() {
+            log::warn!(
+                "could not resolve instance path for require call in `{}`",
+                self.source.display()
+            );
+            log::warn!(
+                "require_call: instance path resolution returned None (check earlier trace logs for why)"
+            );
+            return None;
+        }
+        let instance_path = instance_path?;
 
         // Use sourcemap to resolve to a file path
         let source_path = &self.source;
@@ -371,6 +591,8 @@ impl<'a, 'b, 'resources> RequireRobloxProcessor<'a, 'b, 'resources> {
                     let current_source = mem::replace(&mut self.source, path.to_path_buf());
                     let previous_block_clone =
                         mem::replace(&mut self.current_block_clone, block.clone());
+                    let previous_root_block_clone =
+                        mem::replace(&mut self.root_block_clone, block.clone());
 
                     let apply_processor_timer = Timer::now();
                     DefaultVisitor::visit_block(&mut block, self);
@@ -383,6 +605,7 @@ impl<'a, 'b, 'resources> RequireRobloxProcessor<'a, 'b, 'resources> {
 
                     self.source = current_source;
                     self.current_block_clone = previous_block_clone;
+                    self.root_block_clone = previous_root_block_clone;
 
                     Ok(RequiredResource::Block(block))
                 }
