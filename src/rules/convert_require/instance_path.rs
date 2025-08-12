@@ -32,7 +32,6 @@ impl InstancePath {
             .push(InstancePathComponent::Child(child_name.into()));
     }
 
-    // NEW: represent an ancestor lookup by name
     pub(crate) fn ancestor(&mut self, ancestor_name: impl Into<String>) {
         self.components
             .push(InstancePathComponent::Ancestor(ancestor_name.into()));
@@ -75,7 +74,6 @@ impl InstancePath {
         prefix
     }
 
-    // NEW: accessors used by the sourcemap to traverse the instance path
     pub(crate) fn root(&self) -> &InstancePathRoot {
         &self.root
     }

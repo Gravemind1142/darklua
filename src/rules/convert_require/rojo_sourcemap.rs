@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{utils, DarkluaError};
 
-use super::InstancePath;
+use super::instance_path::{InstancePath, InstancePathComponent, InstancePathRoot};
 
 type NodeId = usize;
 
@@ -186,59 +186,66 @@ impl RojoSourcemap {
         }
     }
 
-    // NEW: resolve a filesystem path from an InstancePath and a source file
     pub(crate) fn get_file_from_instance_path(
         &self,
         from_file: impl AsRef<Path>,
         instance_path: &InstancePath,
     ) -> Option<PathBuf> {
-        // choose the starting node
-        let mut current_node: &RojoSourcemapNode = match instance_path.root() {
-            super::instance_path::InstancePathRoot::Script => self.find_node(from_file.as_ref())?,
-            super::instance_path::InstancePathRoot::Root => &self.root_node,
+        let from_file = from_file.as_ref();
+        let from_node = self.find_node(from_file)?;
+
+        let target_node = match instance_path.root() {
+            InstancePathRoot::Root => {
+                // From DataModel: first component is service name (child), then walk children
+                let mut iter = instance_path.components().iter();
+                let Some(InstancePathComponent::Child(service_name)) = iter.next() else {
+                    return None;
+                };
+                let mut node = self.root_node.children.iter().find(|c| c.name == *service_name)?;
+                for component in iter {
+                    match component {
+                        InstancePathComponent::Parent => return None,
+                        InstancePathComponent::Child(name) => {
+                            node = node.children.iter().find(|c| c.name == *name)?;
+                        }
+                        InstancePathComponent::Ancestor(_name) => return None,
+                    }
+                }
+                node
+            }
+            InstancePathRoot::Script => {
+                // Start from current file node and walk up for Parent then down for Child
+                let mut node = from_node;
+                for component in instance_path.components() {
+                    match component {
+                        InstancePathComponent::Parent => {
+                            node = self.root_node.get_descendant(node.parent_id())?;
+                        }
+                        InstancePathComponent::Child(name) => {
+                            node = node.children.iter().find(|c| c.name == *name)?;
+                        }
+                        InstancePathComponent::Ancestor(name) => {
+                            // jump to first ancestor with this name
+                            let mut cursor = node;
+                            loop {
+                                if cursor.name == *name {
+                                    node = cursor;
+                                    break;
+                                }
+                                if cursor.is_root() {
+                                    return None;
+                                }
+                                cursor = self.root_node.get_descendant(cursor.parent_id())?;
+                            }
+                        }
+                    }
+                }
+                node
+            }
         };
 
-        // If starting at root and the first component is a service, match the service child name
-        let mut components_iter = instance_path.components().iter();
-        if matches!(instance_path.root(), super::instance_path::InstancePathRoot::Root) {
-            if let Some(super::instance_path::InstancePathComponent::Child(service_name)) =
-                components_iter.next()
-            {
-                current_node = current_node.find_child_by_name(service_name)?;
-            }
-        }
-
-        for component in components_iter {
-            match component {
-                super::instance_path::InstancePathComponent::Parent => {
-                    if current_node.is_root() {
-                        return None;
-                    }
-                    current_node = self.root_node.get_descendant(current_node.parent_id())?;
-                }
-                super::instance_path::InstancePathComponent::Child(name) => {
-                    current_node = current_node.find_child_by_name(name)?;
-                }
-                super::instance_path::InstancePathComponent::Ancestor(name) => {
-                    // Walk up until we find an ancestor with this name
-                    let mut walker = current_node;
-                    loop {
-                        if walker.name == *name {
-                            current_node = walker;
-                            break;
-                        }
-                        if walker.is_root() {
-                            return None;
-                        }
-                        let next_id = walker.parent_id();
-                        walker = self.root_node.get_descendant(next_id)?;
-                    }
-                }
-            }
-        }
-
-        // Prefer the first file path associated with the node
-        current_node.file_paths.first().cloned()
+        // Prefer the first file path if available
+        target_node.file_paths.first().cloned()
     }
 
     fn index_descendants<'a>(
@@ -416,6 +423,37 @@ mod test {
             pretty_assertions::assert_eq!(
                 sourcemap
                     .get_instance_path("src/main.lua", "src/init.lua")
+                    .unwrap(),
+                script_path(&["parent"])
+            );
+        }
+
+        #[test]
+        fn from_child_require_parent_nested() {
+            let sourcemap = new_sourcemap(
+                r#"{
+                "name": "Project",
+                "className": "ModuleScript",
+                "filePaths": ["src/init.lua", "default.project.json"],
+                "children": [
+                    {
+                        "name": "Sub",
+                        "className": "ModuleScript",
+                        "filePaths": ["src/Sub/init.lua"],
+                        "children": [
+                            {
+                                "name": "test",
+                                "className": "ModuleScript",
+                                "filePaths": ["src/Sub/test.lua"]
+                            }
+                        ]
+                    }
+                ]
+            }"#,
+            );
+            pretty_assertions::assert_eq!(
+                sourcemap
+                    .get_instance_path("src/Sub/test.lua", "src/Sub/init.lua")
                     .unwrap(),
                 script_path(&["parent"])
             );
