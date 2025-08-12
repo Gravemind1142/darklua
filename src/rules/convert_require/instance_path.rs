@@ -62,6 +62,15 @@ impl InstancePath {
 
         prefix
     }
+
+    // NEW: accessors used by the sourcemap to traverse the instance path
+    pub(crate) fn root(&self) -> &InstancePathRoot {
+        &self.root
+    }
+
+    pub(crate) fn components(&self) -> &[InstancePathComponent] {
+        &self.components
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

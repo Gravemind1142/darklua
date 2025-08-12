@@ -484,3 +484,103 @@ mod sourcemap {
         );
     }
 }
+
+// NEW TESTS: Roblox -> Path conversion using sourcemap
+mod sourcemap_to_path {
+    use super::*;
+
+    fn get_darklua_config_with_sourcemap_reverse(sourcemap_path: &str) -> String {
+        format!(
+            r#"{{
+                generator: 'retain_lines',
+                rules: [
+                    {{
+                        rule: 'convert_require',
+                        current: {{
+                            name: 'roblox',
+                            rojo_sourcemap: '{sourcemap_path}',
+                        }},
+                        target: {{ name: 'path' }}
+                    }}
+                ]
+            }}"#
+        )
+    }
+
+    #[test]
+    fn convert_sibling_instance_require_to_path() {
+        let resources = memory_resources!(
+            "src/a.lua" => "return nil",
+            "src/b.lua" => "local a = require(script.Parent:FindFirstChild('a'))\n\nreturn a\n",
+            ".darklua.json" => get_darklua_config_with_sourcemap_reverse("./sourcemap.json"),
+            "sourcemap.json" => include_str!("../test_cases/sourcemap/sourcemap.json"),
+        );
+        expect_file_process(
+            &resources,
+            "src/b.lua",
+            "local a = require('./a.lua')\n\nreturn a\n",
+        );
+    }
+
+    #[test]
+    fn convert_sibling_instance_as_var_require_to_path() {
+        let resources = memory_resources!(
+            "src/a.lua" => "return nil",
+            "src/b.lua" => "local Root = script.Parent\nlocal a = require(Root.a)\n\nreturn a\n",
+            ".darklua.json" => get_darklua_config_with_sourcemap_reverse("./sourcemap.json"),
+            "sourcemap.json" => include_str!("../test_cases/sourcemap/sourcemap.json"),
+        );
+        expect_file_process(
+            &resources,
+            "src/b.lua",
+            "local Root = script.Parent\nlocal a = require('./a.lua')\n\nreturn a\n",
+        );
+    }
+
+    #[test]
+    fn convert_parent_instance_require_to_path() {
+        let resources = memory_resources!(
+            "src/d/init.lua" => "return nil",
+            "src/d/d1.lua" => "local d = require(script.Parent)\n\nreturn d\n",
+            ".darklua.json" => get_darklua_config_with_sourcemap_reverse("./sourcemap.json"),
+            "sourcemap.json" => include_str!("../test_cases/sourcemap/sourcemap.json"),
+        );
+        expect_file_process(
+            &resources,
+            "src/d/d1.lua",
+            "local d = require('./init.lua')\n\nreturn d\n",
+        );
+    }
+
+    #[test]
+    fn datamodel_convert_across_service_instance_to_path() {
+        let resources = memory_resources!(
+            "Packages/Package1/value.lua" => "return 1",
+            "main.server.lua" => "local value = require(game:GetService('ReplicatedStorage'):FindFirstChild('Project'):FindFirstChild('Packages'):FindFirstChild('Package1'):FindFirstChild('value'))\n\nreturn value\n",
+            ".darklua.json" => get_darklua_config_with_sourcemap_reverse("./sourcemap.json"),
+            "sourcemap.json" => include_str!("../test_cases/sourcemap/place-sourcemap.json"),
+        );
+        // Path relative to project root (same directory as main.server.lua)
+        expect_file_process(
+            &resources,
+            "main.server.lua",
+            "local value = require('./Packages/Package1/value.lua')\n\nreturn value\n",
+        );
+    }
+
+    #[test]
+    fn datamodel_convert_across_service_instance_as_var_to_path() {
+        let resources = memory_resources!(
+            "Packages/Package1/value.lua" => "return 1",
+            "main.server.lua" => "local ReplicatedStorage = game:GetService('ReplicatedStorage')\nlocal x = ReplicatedStorage.Project\n\nlocal value = require(x.Packages.Package1.value)\n\nreturn value\n",
+            ".darklua.json" => get_darklua_config_with_sourcemap_reverse("./sourcemap.json"),
+            "sourcemap.json" => include_str!("../test_cases/sourcemap/place-sourcemap.json"),
+        );
+        // Path relative to project root (same directory as main.server.lua)
+        expect_file_process(
+            &resources,
+            "main.server.lua",
+            "local ReplicatedStorage = game:GetService('ReplicatedStorage')\nlocal x = ReplicatedStorage.Project\n\nlocal value = require('./Packages/Package1/value.lua')\n\nreturn value\n",
+        );
+    }
+}

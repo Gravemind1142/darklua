@@ -37,10 +37,11 @@ impl RequireMode {
         &self,
         call: &FunctionCall,
         context: &Context,
+        current_block: &Block,
     ) -> DarkluaResult<Option<PathBuf>> {
         match self {
             RequireMode::Path(path_mode) => path_mode.find_require(call, context),
-            RequireMode::Roblox(roblox_mode) => roblox_mode.find_require(call, context),
+            RequireMode::Roblox(roblox_mode) => roblox_mode.find_require(call, context, current_block),
         }
     }
 
@@ -93,6 +94,7 @@ struct RequireConverter<'a> {
     current: RequireMode,
     target: RequireMode,
     context: &'a Context<'a, 'a, 'a>,
+    current_block_clone: crate::nodes::Block,
 }
 
 impl Deref for RequireConverter<'_> {
@@ -110,17 +112,26 @@ impl DerefMut for RequireConverter<'_> {
 }
 
 impl<'a> RequireConverter<'a> {
-    fn new(current: RequireMode, target: RequireMode, context: &'a Context) -> Self {
+    fn new(
+        current: RequireMode,
+        target: RequireMode,
+        context: &'a Context,
+        current_block_clone: crate::nodes::Block,
+    ) -> Self {
         Self {
             identifier_tracker: IdentifierTracker::new(),
             current,
             target,
             context,
+            current_block_clone,
         }
     }
 
     fn try_require_conversion(&mut self, call: &mut FunctionCall) -> DarkluaResult<()> {
-        if let Some(require_path) = self.current.find_require(call, self.context)? {
+        if let Some(require_path) = self
+            .current
+            .find_require(call, self.context, &self.current_block_clone)?
+        {
             log::trace!("found require path `{}`", require_path.display());
 
             if let Some(new_arguments) =
@@ -177,7 +188,12 @@ impl Rule for ConvertRequire {
             .initialize(context)
             .map_err(|err| err.to_string())?;
 
-        let mut processor = RequireConverter::new(current_mode, target_mode, context);
+        let mut processor = RequireConverter::new(
+            current_mode,
+            target_mode,
+            context,
+            block.clone(),
+        );
         DefaultVisitor::visit_block(block, &mut processor);
         Ok(())
     }

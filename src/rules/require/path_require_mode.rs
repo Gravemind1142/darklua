@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::frontend::DarkluaResult;
-use crate::nodes::FunctionCall;
+use crate::nodes::{Arguments, FunctionCall, StringExpression};
 use crate::rules::require::match_path_require_call;
 use crate::rules::Context;
 use crate::utils::find_luau_configuration;
@@ -123,12 +123,40 @@ impl PathRequireMode {
 
     pub(crate) fn generate_require(
         &self,
-        _path: &Path,
+        path: &Path,
         _current_mode: &crate::rules::RequireMode,
-        _context: &Context<'_, '_, '_>,
+        context: &Context<'_, '_, '_>,
     ) -> Result<Option<crate::nodes::Arguments>, crate::DarkluaError> {
-        Err(DarkluaError::custom("unsupported target require mode")
-            .context("path require mode cannot be used"))
+        // Convert the absolute file path to a string argument for require
+        // Prefer relative to current file when possible
+        let source_path = context.current_path();
+        let project_root = context.project_location();
+
+        // Create a relative path when under the same directory tree, otherwise return absolute.
+        let relative_to_source = pathdiff::diff_paths(path, source_path.parent().unwrap_or(project_root));
+        let mut string_path = if let Some(rel) = relative_to_source {
+            rel
+        } else if let Some(rel) = pathdiff::diff_paths(path, project_root) {
+            rel
+        } else {
+            path.to_path_buf()
+        };
+
+        // Ensure same-directory relatives are prefixed with "./" for clarity/consistency
+        if !string_path.is_absolute()
+            && !string_path.starts_with(".")
+            && !string_path.starts_with("..")
+        {
+            string_path = Path::new(".").join(string_path);
+        }
+
+        let normalized = crate::utils::normalize_path_with_current_dir(&string_path);
+        Ok(Some(
+            crate::nodes::Arguments::default()
+                .with_argument(crate::nodes::StringExpression::from_value(
+                    normalized.display().to_string(),
+                )),
+        ))
     }
 }
 

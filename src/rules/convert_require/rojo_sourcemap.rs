@@ -66,6 +66,11 @@ impl RojoSourcemapNode {
     fn is_root(&self) -> bool {
         self.id == self.parent_id
     }
+
+    // NEW: find a direct child by its instance name
+    fn find_child_by_name(&self, name: &str) -> Option<&RojoSourcemapNode> {
+        self.children.iter().find(|child| child.name == name)
+    }
 }
 
 struct RojoSourcemapNodeIterator<'a> {
@@ -179,6 +184,46 @@ impl RojoSourcemap {
                 target_ancestors.iter().rev().skip(1),
             )
         }
+    }
+
+    // NEW: resolve a filesystem path from an InstancePath and a source file
+    pub(crate) fn get_file_from_instance_path(
+        &self,
+        from_file: impl AsRef<Path>,
+        instance_path: &InstancePath,
+    ) -> Option<PathBuf> {
+        // choose the starting node
+        let mut current_node: &RojoSourcemapNode = match instance_path.root() {
+            super::instance_path::InstancePathRoot::Script => self.find_node(from_file.as_ref())?,
+            super::instance_path::InstancePathRoot::Root => &self.root_node,
+        };
+
+        // If starting at root and the first component is a service, match the service child name
+        let mut components_iter = instance_path.components().iter();
+        if matches!(instance_path.root(), super::instance_path::InstancePathRoot::Root) {
+            if let Some(super::instance_path::InstancePathComponent::Child(service_name)) =
+                components_iter.next()
+            {
+                current_node = current_node.find_child_by_name(service_name)?;
+            }
+        }
+
+        for component in components_iter {
+            match component {
+                super::instance_path::InstancePathComponent::Parent => {
+                    if current_node.is_root() {
+                        return None;
+                    }
+                    current_node = self.root_node.get_descendant(current_node.parent_id())?;
+                }
+                super::instance_path::InstancePathComponent::Child(name) => {
+                    current_node = current_node.find_child_by_name(name)?;
+                }
+            }
+        }
+
+        // Prefer the first file path associated with the node
+        current_node.file_paths.first().cloned()
     }
 
     fn index_descendants<'a>(
