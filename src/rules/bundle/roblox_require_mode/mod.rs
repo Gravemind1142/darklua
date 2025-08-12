@@ -360,6 +360,8 @@ impl<'a, 'b, 'resources> RequireRobloxProcessor<'a, 'b, 'resources> {
                     }
 
                     let current_source = mem::replace(&mut self.source, path.to_path_buf());
+                    let previous_block_clone =
+                        mem::replace(&mut self.current_block_clone, block.clone());
 
                     let apply_processor_timer = Timer::now();
                     DefaultVisitor::visit_block(&mut block, self);
@@ -371,6 +373,7 @@ impl<'a, 'b, 'resources> RequireRobloxProcessor<'a, 'b, 'resources> {
                     );
 
                     self.source = current_source;
+                    self.current_block_clone = previous_block_clone;
 
                     Ok(RequiredResource::Block(block))
                 }
@@ -434,6 +437,10 @@ impl DerefMut for RequireRobloxProcessor<'_, '_, '_> {
 }
 
 impl NodeProcessor for RequireRobloxProcessor<'_, '_, '_> {
+    fn process_scope(&mut self, block: &mut Block, _extra: Option<&mut Expression>) {
+        self.current_block_clone = block.clone();
+    }
+
     fn process_expression(&mut self, expression: &mut Expression) {
         if let Expression::Call(call) = expression {
             if let Some(replace_with) = self.try_inline_call(call) {
