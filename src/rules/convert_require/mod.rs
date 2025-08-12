@@ -11,7 +11,6 @@ use crate::process::{DefaultVisitor, IdentifierTracker, NodeProcessor, NodeVisit
 use crate::rules::require::is_require_call;
 use crate::rules::{Context, RuleConfiguration, RuleConfigurationError, RuleProperties};
 
-use instance_path::InstancePath;
 pub use roblox_index_style::RobloxIndexStyle;
 pub use roblox_require_mode::RobloxRequireMode;
 

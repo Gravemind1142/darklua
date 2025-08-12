@@ -66,11 +66,6 @@ impl RojoSourcemapNode {
     fn is_root(&self) -> bool {
         self.id == self.parent_id
     }
-
-    // NEW: find a direct child by its instance name
-    fn find_child_by_name(&self, name: &str) -> Option<&RojoSourcemapNode> {
-        self.children.iter().find(|child| child.name == name)
-    }
 }
 
 struct RojoSourcemapNodeIterator<'a> {
