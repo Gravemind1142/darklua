@@ -172,6 +172,52 @@ fn use_default_json5_config_in_place() {
     assert_eq!(resources.get("src/test.lua").unwrap(), "return 'Hello'");
 }
 
+#[test]
+fn deserialize_treat_indexing_as_noopt_flag() {
+    let config: darklua_core::Configuration =
+        json5::from_str("{ treat_indexing_as_noopt: true }").unwrap();
+    assert!(config.treat_indexing_as_noopt());
+    // round-trip
+    let serialized = json5::to_string(&config).unwrap();
+    assert!(serialized.contains("treat_indexing_as_noopt"));
+}
+
+#[test]
+fn treat_indexing_as_noopt_removes_unused_instance_indexing_calls() {
+    let resources = memory_resources!(
+        "src/test.lua" => "local a = script.Parent:FindFirstChild('X')",
+        ".darklua.json" => "{ rules: ['remove_unused_variable'], treat_indexing_as_noopt: true }",
+    );
+
+    process(&resources, Options::new("src")).unwrap().result().unwrap();
+
+    assert_eq!(resources.get("src/test.lua").unwrap(), "");
+}
+
+#[test]
+fn treat_indexing_as_noopt_removes_unused_dot_and_bracket_indexing() {
+    let resources = memory_resources!(
+        "src/test.lua" => "local a = script.Child.Module\nlocal b = script['Child']['Module']",
+        ".darklua.json" => "{ rules: ['remove_unused_variable'], treat_indexing_as_noopt: true }",
+    );
+
+    process(&resources, Options::new("src")).unwrap().result().unwrap();
+
+    assert_eq!(resources.get("src/test.lua").unwrap(), "");
+}
+
+#[test]
+fn treat_indexing_as_noopt_removes_unused_indexing_as_var() {
+    let resources = memory_resources!(
+        "src/test.lua" => "local a = script.Child\nlocal b = a.Module",
+        ".darklua.json" => "{ rules: ['remove_unused_variable'], treat_indexing_as_noopt: true }",
+    );
+
+    process(&resources, Options::new("src")).unwrap().result().unwrap();
+
+    assert_eq!(resources.get("src/test.lua").unwrap(), "");
+}
+
 mod errors {
     use std::path::{Path, PathBuf};
 

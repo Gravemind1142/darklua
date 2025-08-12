@@ -11,10 +11,32 @@ use super::{
 
 use crate::{
     nodes::Block,
-    rules::{bundle::Bundler, ContextBuilder, Rule, RuleConfiguration},
+    rules::{bundle::Bundler, ContextBuilder, FlawlessRule, Rule, RuleConfiguration},
     utils::{normalize_path, Timer},
     GeneratorParameters,
 };
+
+use crate::process::set_treat_indexing_as_noopt;
+use crate::process::{clear_known_instance_aliases, is_strict_instance_indexing, set_known_instance_aliases};
+use crate::rules::ReplaceReferencedTokens;
+use crate::process::{DefaultVisitor, NodeProcessor, NodeVisitor};
+
+struct InstanceAliasCollector(std::collections::HashSet<String>);
+
+impl InstanceAliasCollector {
+    fn new() -> Self { Self(Default::default()) }
+    fn into_set(self) -> std::collections::HashSet<String> { self.0 }
+}
+
+impl NodeProcessor for InstanceAliasCollector {
+    fn process_local_assign_statement(&mut self, assign: &mut crate::nodes::LocalAssignStatement) {
+        for (var, value) in assign.iter_variables().zip(assign.iter_values()) {
+            if is_strict_instance_indexing(value) {
+                self.0.insert(var.get_identifier().get_name().to_string());
+            }
+        }
+    }
+}
 
 const DEFAULT_CONFIG_PATHS: [&str; 2] = [".darklua.json", ".darklua.json5"];
 
@@ -113,6 +135,9 @@ impl<'a> Worker<'a> {
             })
         );
 
+        // Apply global evaluator behavior based on configuration
+        set_treat_indexing_as_noopt(self.configuration.treat_indexing_as_noopt());
+
         Ok(())
     }
 
@@ -139,6 +164,15 @@ impl<'a> Worker<'a> {
 
                 let parser_time = parser_timer.duration_label();
                 log::debug!("parsed `{}` in {}", source_display, parser_time);
+
+                // If configured, precompute aliases to instance paths for this block
+                if self.configuration.treat_indexing_as_noopt() {
+                    let mut collector = InstanceAliasCollector::new();
+                    DefaultVisitor::visit_block(&mut block, &mut collector);
+                    set_known_instance_aliases(collector.into_set());
+                } else {
+                    clear_known_instance_aliases();
+                }
 
                 self.bundle(work_item, &mut block, &content)?;
 
@@ -258,6 +292,13 @@ impl<'a> Worker<'a> {
             let block = progress.mutate_block();
             let rule_timer = Timer::now();
 
+            // Recompute instance aliases prior to running each rule to reflect any changes
+            if self.configuration.treat_indexing_as_noopt() {
+                let mut collector = InstanceAliasCollector::new();
+                DefaultVisitor::visit_block(block, &mut collector);
+                set_known_instance_aliases(collector.into_set());
+            }
+
             let source = work_item.data.source();
 
             let rule_result = rule.process(block, &context).map_err(|rule_error| {
@@ -286,6 +327,17 @@ impl<'a> Worker<'a> {
                 rule.get_name(),
                 rule_duration
             );
+        }
+
+        // Final cleanup pass to remove variables that became unused after prior rules
+        if self.configuration.treat_indexing_as_noopt() {
+            let cleanup_context = self
+                .create_rule_context(work_item.data.source(), &work_progress.content)
+                .build();
+            let cleanup_rule = crate::rules::RemoveUnusedVariable::default();
+            cleanup_rule.flawless_process(progress.mutate_block(), &cleanup_context);
+            ReplaceReferencedTokens::default()
+                .flawless_process(progress.mutate_block(), &cleanup_context);
         }
 
         let rule_time = progress.duration().duration_label();

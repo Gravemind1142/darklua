@@ -26,6 +26,19 @@ fn process_main_unchanged(resources: &Resources, main_code: &'static str) {
     pretty_assertions::assert_eq!(main, main_code);
 }
 
+fn process_file(resources: &Resources, file_name: &str) -> String {
+    darklua_core::process(resources, Options::new(file_name))
+        .unwrap()
+        .result()
+        .unwrap();
+
+    resources.get(file_name).unwrap()
+}
+
+fn expect_file_process(resources: &Resources, file_name: &str, expect_content: &str) {
+    pretty_assertions::assert_eq!(process_file(resources, file_name), expect_content);
+}
+
 #[test]
 fn skip_require_call_without_a_string() {
     let resources = memory_resources!(
@@ -641,7 +654,7 @@ data:
 }
 
 #[test]
-fn bundle_roblox_require_lua_file() {
+fn bundle_roblox_require() {
     const ROBLOX_BUNDLE_CONFIG: &str =
         "{ \"rules\": [], \"generator\": \"retain_lines\", \"bundle\": { \"require_mode\": { \"name\": \"roblox\", \"rojo_sourcemap\": \"default.project.json\" } } }";
 
@@ -690,6 +703,81 @@ fn bundle_roblox_require_lua_file() {
         "original require call should be inlined: {}",
         out
     );
+}
+
+#[test]
+fn bundle_roblox_require_respects_treat_indexing_as_noopt() {
+    const ROBLOX_BUNDLE_CONFIG: &str =
+        "{ \"rules\": [\"remove_unused_variable\"], \"generator\": \"readable\", \"treat_indexing_as_noopt\": true, \"bundle\": { \"require_mode\": { \"name\": \"roblox\", \"rojo_sourcemap\": \"default.project.json\" } } }";
+
+    const ROJO_SOURCEMAP: &str = r#"{
+        "name": "Project",
+        "className": "ModuleScript",
+        "filePaths": ["src/init.lua", "default.project.json"],
+        "children": [
+            {
+                "name": "a1",
+                "className": "ModuleScript",
+                "filePaths": ["src/a1.lua"]
+            },
+            {
+                "name": "a2",
+                "className": "ModuleScript",
+                "filePaths": ["src/a2.lua"]
+            }
+        ]
+    }"#;
+
+    let resources = memory_resources!(
+        "src/a1.lua" => "return os.clock() > 1",
+        "src/a2.lua" => "local Root = script.Parent\nlocal a1 = Root.a1\nreturn require(a1)",
+        "src/init.lua" => "local a1 = require(script.a1)\nlocal a2 = require(script.a2)\nprint(a1, a2)",
+        "default.project.json" => ROJO_SOURCEMAP,
+        ".darklua.json" => ROBLOX_BUNDLE_CONFIG,
+    );
+
+    process(
+        &resources,
+        Options::new("src/init.lua").with_output("out.lua"),
+    )
+    .unwrap()
+    .result()
+    .unwrap();
+
+    //let out = resources.get("out.lua").unwrap();
+
+    expect_file_process(
+        &resources,
+        "out.lua",
+        r#"local __DARKLUA_BUNDLE_MODULES
+
+__DARKLUA_BUNDLE_MODULES = {
+    cache = {},
+    load = function(m)
+        if not __DARKLUA_BUNDLE_MODULES.cache[m] then
+            __DARKLUA_BUNDLE_MODULES.cache[m] = {
+                c = __DARKLUA_BUNDLE_MODULES[m](),
+            }
+        end
+
+        return __DARKLUA_BUNDLE_MODULES.cache[m].c
+    end,
+}
+
+do
+    function __DARKLUA_BUNDLE_MODULES.a()
+        return os.clock() > 1
+    end
+    function __DARKLUA_BUNDLE_MODULES.b()
+        return __DARKLUA_BUNDLE_MODULES.load('a')
+    end
+end
+
+local a1 = __DARKLUA_BUNDLE_MODULES.load('a')
+local a2 = __DARKLUA_BUNDLE_MODULES.load('b')
+
+print(a1, a2)
+"#);
 }
 
 #[test]

@@ -507,6 +507,26 @@ mod sourcemap_to_path {
         )
     }
 
+    fn get_darklua_config_with_sourcemap_reverse_with_treat_indexing_as_noopt(sourcemap_path: &str) -> String {
+        format!(
+            r#"{{
+                generator: 'retain_lines',
+                treat_indexing_as_noopt: true,
+                rules: [
+                    'remove_unused_variable',
+                    {{
+                        rule: 'convert_require',
+                        current: {{
+                            name: 'roblox',
+                            rojo_sourcemap: '{sourcemap_path}',
+                        }},
+                        target: {{ name: 'path' }}
+                    }}
+                ]
+            }}"#
+        )
+    }
+
     #[test]
     fn convert_sibling_instance_require_to_path() {
         let resources = memory_resources!(
@@ -596,6 +616,22 @@ mod sourcemap_to_path {
             &resources,
             "main.server.lua",
             "local ReplicatedStorage = game:GetService('ReplicatedStorage')\nlocal x = ReplicatedStorage.Project\n\nlocal value = require('./Packages/Package1/value.lua')\n\nreturn value\n",
+        );
+    }
+
+    #[test]
+    fn datamodel_convert_across_service_instance_as_var_to_path_with_unused_var() {
+        let resources = memory_resources!(
+            "Packages/Package1/value.lua" => "return 1",
+            "main.server.lua" => "local ReplicatedStorage = game:GetService('ReplicatedStorage')\nlocal x = ReplicatedStorage.Project\n\nlocal value = require(x.Packages.Package1.value)\n\nreturn value\n",
+            ".darklua.json" => get_darklua_config_with_sourcemap_reverse_with_treat_indexing_as_noopt("./sourcemap.json"),
+            "sourcemap.json" => include_str!("../test_cases/sourcemap/place-sourcemap.json"),
+        );
+        // Path relative to project root (same directory as main.server.lua)
+        expect_file_process(
+            &resources,
+            "main.server.lua",
+            "\n\n\nlocal value = require('./Packages/Package1/value.lua')\n\nreturn value\n",
         );
     }
 }

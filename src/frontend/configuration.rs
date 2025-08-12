@@ -34,6 +34,8 @@ pub struct Configuration {
     bundle: Option<BundleConfiguration>,
     #[serde(default, skip)]
     location: Option<PathBuf>,
+    #[serde(default)]
+    pub(crate) treat_indexing_as_noopt: bool,
 }
 
 impl Configuration {
@@ -44,7 +46,13 @@ impl Configuration {
             generator: GeneratorParameters::default(),
             bundle: None,
             location: None,
+            treat_indexing_as_noopt: false,
         }
+    }
+
+    /// Whether instance indexing should be treated as non-side-effecting.
+    pub fn treat_indexing_as_noopt(&self) -> bool {
+        self.treat_indexing_as_noopt
     }
 
     /// Sets the generator parameters for this configuration.
@@ -134,6 +142,7 @@ impl Default for Configuration {
             generator: Default::default(),
             bundle: None,
             location: None,
+            treat_indexing_as_noopt: false,
         }
     }
 }

@@ -4,6 +4,147 @@ pub use lua_value::*;
 
 use crate::nodes::*;
 
+// Add a thread-local flag to control whether instance indexing is treated as a no-op
+thread_local! {
+    static TREAT_INDEXING_AS_NOOPT: std::cell::Cell<bool> = std::cell::Cell::new(false);
+}
+
+// Maintain known local identifiers that are aliases to instance paths (e.g., `local a = script.Child`)
+thread_local! {
+    static KNOWN_INSTANCE_ALIASES: std::cell::RefCell<std::collections::HashSet<String>> =
+        std::cell::RefCell::new(std::collections::HashSet::new());
+}
+
+/// Enable or disable the global evaluator behavior that treats Roblox instance indexing
+/// (dot/bracket access from `script`/`game`, and calls to `WaitForChild`, `FindFirstChild`,
+/// and `FindFirstAncestor`) as having no side effects.
+pub fn set_treat_indexing_as_noopt(enabled: bool) {
+    TREAT_INDEXING_AS_NOOPT.with(|cell| cell.set(enabled));
+}
+
+/// Replace the set of known instance aliases used by the evaluator when
+/// `treat_indexing_as_noopt` is enabled.
+pub fn set_known_instance_aliases<I>(aliases: I)
+where
+    I: IntoIterator<Item = String>,
+{
+    KNOWN_INSTANCE_ALIASES.with(|set| {
+        let mut s = set.borrow_mut();
+        s.clear();
+        for name in aliases {
+            s.insert(name);
+        }
+    });
+}
+
+/// Clear known instance aliases.
+pub fn clear_known_instance_aliases() {
+    set_known_instance_aliases(std::iter::empty());
+}
+
+#[inline]
+fn is_treat_indexing_as_noopt_enabled() -> bool {
+    TREAT_INDEXING_AS_NOOPT.with(|cell| cell.get())
+}
+
+fn is_string_literal(expression: &Expression) -> bool {
+    matches!(expression, Expression::String(s) if s.get_string_value().is_some())
+}
+
+fn is_supported_indexing_method(name: &str) -> bool {
+    matches!(name, "WaitForChild" | "FindFirstChild" | "FindFirstAncestor" | "GetService")
+}
+
+fn call_has_indexing_semantics(call: &FunctionCall) -> bool {
+    if let Some(method) = call.get_method() {
+        if is_supported_indexing_method(method.get_name().as_str()) {
+            // verify first argument is a string literal when method expects a name
+            match call.get_arguments() {
+                Arguments::String(s) => s.get_string_value().is_some(),
+                Arguments::Tuple(tuple) if tuple.len() >= 1 => {
+                    tuple.iter_values().next().map(is_string_literal).unwrap_or(false)
+                }
+                _ => false,
+            }
+        } else {
+            false
+        }
+    } else {
+        false
+    }
+}
+
+fn expression_is_instance_path(expression: &Expression) -> bool {
+    match expression {
+        Expression::Identifier(id) => {
+            let name = id.get_name().as_str();
+            if matches!(name, "script" | "game") {
+                return true;
+            }
+            KNOWN_INSTANCE_ALIASES.with(|set| set.borrow().contains(name))
+        }
+        Expression::Field(field) => prefix_is_instance_path(field.get_prefix()),
+        Expression::Index(index) => {
+            prefix_is_instance_path(index.get_prefix()) && is_string_literal(index.get_index())
+        }
+        Expression::Call(call) => {
+            call_has_indexing_semantics(call) && prefix_is_instance_path(call.get_prefix())
+        }
+        Expression::Parenthese(p) => expression_is_instance_path(p.inner_expression()),
+        _ => false,
+    }
+}
+
+fn prefix_is_instance_path(prefix: &Prefix) -> bool {
+    match prefix {
+        Prefix::Identifier(id) => {
+            let name = id.get_name().as_str();
+            if matches!(name, "script" | "game") {
+                return true;
+            }
+            KNOWN_INSTANCE_ALIASES.with(|set| set.borrow().contains(name))
+        }
+        Prefix::Field(field) => prefix_is_instance_path(field.get_prefix()),
+        Prefix::Index(index) => {
+            prefix_is_instance_path(index.get_prefix()) && is_string_literal(index.get_index())
+        }
+        Prefix::Call(call) => {
+            call_has_indexing_semantics(call) && prefix_is_instance_path(call.get_prefix())
+        }
+        Prefix::Parenthese(paren) => expression_is_instance_path(paren.inner_expression()),
+    }
+}
+
+/// Strict variant that only considers direct access from `script` or `game` (used for alias discovery)
+pub fn is_strict_instance_indexing(expression: &Expression) -> bool {
+    fn strict_prefix_is_instance(prefix: &Prefix) -> bool {
+        match prefix {
+            Prefix::Identifier(id) => matches!(id.get_name().as_str(), "script" | "game"),
+            Prefix::Field(field) => strict_prefix_is_instance(field.get_prefix()),
+            Prefix::Index(index) => {
+                strict_prefix_is_instance(index.get_prefix()) && is_string_literal(index.get_index())
+            }
+            Prefix::Call(call) => {
+                call_has_indexing_semantics(call) && strict_prefix_is_instance(call.get_prefix())
+            }
+            Prefix::Parenthese(paren) => is_strict_instance_indexing(paren.inner_expression()),
+        }
+    }
+
+    match expression {
+        Expression::Identifier(id) => matches!(id.get_name().as_str(), "script" | "game"),
+        Expression::Field(field) => strict_prefix_is_instance(field.get_prefix()),
+        Expression::Index(index) => {
+            strict_prefix_is_instance(index.get_prefix()) && is_string_literal(index.get_index())
+        }
+        Expression::Call(call) => {
+            call_has_indexing_semantics(call) && strict_prefix_is_instance(call.get_prefix())
+        }
+        Expression::Parenthese(paren) => is_strict_instance_indexing(paren.inner_expression()),
+        _ => false,
+    }
+}
+
 /// A struct to convert an Expression node into a LuaValue object.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Evaluator {
@@ -229,7 +370,13 @@ impl Evaluator {
     }
 
     #[inline]
-    fn call_has_side_effects(&self, _call: &FunctionCall) -> bool {
+    fn call_has_side_effects(&self, call: &FunctionCall) -> bool {
+        if is_treat_indexing_as_noopt_enabled()
+            && call_has_indexing_semantics(call)
+            && prefix_is_instance_path(call.get_prefix())
+        {
+            return false;
+        }
         true
     }
 
@@ -246,11 +393,20 @@ impl Evaluator {
 
     #[inline]
     fn field_has_side_effects(&self, field: &FieldExpression) -> bool {
+        if is_treat_indexing_as_noopt_enabled() && prefix_is_instance_path(field.get_prefix()) {
+            return false;
+        }
         !self.pure_metamethods || self.prefix_has_side_effects(field.get_prefix())
     }
 
     #[inline]
     fn index_has_side_effects(&self, index: &IndexExpression) -> bool {
+        if is_treat_indexing_as_noopt_enabled()
+            && prefix_is_instance_path(index.get_prefix())
+            && is_string_literal(index.get_index())
+        {
+            return false;
+        }
         !self.pure_metamethods
             || self.has_side_effects(index.get_index())
             || self.prefix_has_side_effects(index.get_prefix())
