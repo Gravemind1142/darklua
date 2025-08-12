@@ -2,20 +2,27 @@ use std::str::FromStr;
 
 use serde::{Deserialize, Serialize};
 
-use crate::rules::{require::PathRequireMode, RuleProcessResult};
+use crate::rules::{require::PathRequireMode, require::RobloxRequireMode, RuleProcessResult};
 use crate::{nodes::Block, rules::Context};
 
-use super::{path_require_mode, BundleOptions};
+use super::{path_require_mode, roblox_require_mode, BundleOptions};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields, rename_all = "snake_case", tag = "name")]
 pub enum BundleRequireMode {
     Path(PathRequireMode),
+    Roblox(RobloxRequireMode),
 }
 
 impl From<PathRequireMode> for BundleRequireMode {
     fn from(mode: PathRequireMode) -> Self {
         Self::Path(mode)
+    }
+}
+
+impl From<RobloxRequireMode> for BundleRequireMode {
+    fn from(mode: RobloxRequireMode) -> Self {
+        Self::Roblox(mode)
     }
 }
 
@@ -25,6 +32,7 @@ impl FromStr for BundleRequireMode {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         Ok(match s {
             "path" => Self::Path(Default::default()),
+            "roblox" => Self::Roblox(Default::default()),
             _ => return Err(format!("invalid require mode `{}`", s)),
         })
     }
@@ -50,6 +58,13 @@ impl BundleRequireMode {
                     .initialize(context)
                     .map_err(|err| err.to_string())?;
                 path_require_mode::process_block(block, context, options, &require_mode)
+            }
+            Self::Roblox(roblox_require_mode) => {
+                let mut require_mode = roblox_require_mode.clone();
+                require_mode
+                    .initialize(context)
+                    .map_err(|err| err.to_string())?;
+                roblox_require_mode::process_block(block, context, options, &require_mode)
             }
         }
     }
