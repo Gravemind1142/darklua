@@ -3,6 +3,10 @@ mod roblox_index_style;
 mod roblox_require_mode;
 mod rojo_sourcemap;
 
+// Re-exports used by bundling Roblox require mode
+pub(crate) use instance_path::{InstancePath, InstancePathComponent, InstancePathRoot};
+pub(crate) use rojo_sourcemap::RojoSourcemap;
+
 use serde::{Deserialize, Serialize};
 
 use crate::frontend::DarkluaResult;

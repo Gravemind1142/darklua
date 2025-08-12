@@ -27,7 +27,7 @@ pub(crate) struct BuildModuleDefinitions {
 #[derive(Debug)]
 struct ModuleDefinition {
     block: Block,
-    // TODO: Replace with Roblox-specific identifier (e.g., Instance path, module reference)
+    // Use the full instance path from root of DataModel (game) as a string
     roblox_reference: String,
 }
 
@@ -173,7 +173,6 @@ impl BuildModuleDefinitions {
         // For Roblox, we might track Instance references instead of file paths
         for _module in self.module_definitions.values() {
             // context.add_roblox_dependency(module.roblox_reference.clone());
-            // For now, we'll skip dependency tracking since it's Roblox-specific
         }
 
         self.rename_type_declaration.rename_types(block);

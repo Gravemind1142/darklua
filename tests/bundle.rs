@@ -639,3 +639,43 @@ data:
         }
     }
 }
+
+#[test]
+fn bundle_roblox_require_lua_file() {
+    const ROBLOX_BUNDLE_CONFIG: &str =
+        "{ \"rules\": [], \"generator\": \"retain_lines\", \"bundle\": { \"require_mode\": { \"name\": \"roblox\", \"rojo_sourcemap\": \"default.project.json\" } } }";
+
+    const ROJO_SOURCEMAP: &str = r#"{
+        "name": "Project",
+        "className": "ModuleScript",
+        "filePaths": ["src/init.lua", "default.project.json"],
+        "children": [
+            {
+                "name": "value",
+                "className": "ModuleScript",
+                "filePaths": ["src/value.lua"]
+            }
+        ]
+    }"#;
+
+    let resources = memory_resources!(
+        "src/value.lua" => "return true",
+        "src/init.lua" => "local value = require(script.value)",
+        "default.project.json" => ROJO_SOURCEMAP,
+        ".darklua.json" => ROBLOX_BUNDLE_CONFIG,
+    );
+
+    process(
+        &resources,
+        Options::new("src/init.lua").with_output("out.lua"),
+    )
+    .unwrap()
+    .result()
+    .unwrap();
+
+    let out = resources.get("out.lua").unwrap();
+
+    assert!(out.contains("__DARKLUA_BUNDLE_MODULES"), "missing bundle modules table in output: {}", out);
+    assert!(out.contains("return true"), "inlined module content missing in output: {}", out);
+    assert!(!out.contains("require("), "original require call should be inlined: {}", out);
+}
