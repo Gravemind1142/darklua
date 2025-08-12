@@ -256,6 +256,15 @@ impl<'a, 'b, 'resources> RequireRobloxProcessor<'a, 'b, 'resources> {
     fn try_inline_call(&mut self, call: &FunctionCall) -> Option<Expression> {
         let (roblox_reference, require_path) = self.require_call(call)?;
 
+        if self.options.is_excluded(&require_path) {
+            log::info!(
+                "exclude `{}` from bundle [from `{}`]",
+                require_path.display(),
+                self.source.display()
+            );
+            return None;
+        }
+
         if self.skip_module_paths.contains(&require_path) {
             log::trace!(
                 "skip `{}` because it previously errored",

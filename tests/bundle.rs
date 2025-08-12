@@ -691,3 +691,50 @@ fn bundle_roblox_require_lua_file() {
         out
     );
 }
+
+#[test]
+fn bundle_roblox_require_respects_excludes() {
+    const ROBLOX_BUNDLE_CONFIG_WITH_EXCLUDES: &str =
+        "{ \"rules\": [], \"generator\": \"retain_lines\", \"bundle\": { \"require_mode\": { \"name\": \"roblox\", \"rojo_sourcemap\": \"default.project.json\" }, \"excludes\": [\"**/value.lua\"] } }";
+
+    const ROJO_SOURCEMAP: &str = r#"{
+        "name": "Project",
+        "className": "ModuleScript",
+        "filePaths": ["src/init.lua", "default.project.json"],
+        "children": [
+            {
+                "name": "value",
+                "className": "ModuleScript",
+                "filePaths": ["src/value.lua"]
+            }
+        ]
+    }"#;
+
+    let resources = memory_resources!(
+        "src/value.lua" => "return true",
+        "src/init.lua" => "local value = require(script.value)",
+        "default.project.json" => ROJO_SOURCEMAP,
+        ".darklua.json" => ROBLOX_BUNDLE_CONFIG_WITH_EXCLUDES,
+    );
+
+    process(
+        &resources,
+        Options::new("src/init.lua").with_output("out.lua"),
+    )
+    .unwrap()
+    .result()
+    .unwrap();
+
+    let out = resources.get("out.lua").unwrap();
+
+    assert!(
+        out.contains("require(script.value)"),
+        "require should not be inlined due to excludes, but output was: {}",
+        out
+    );
+    assert!(
+        !out.contains("__DARKLUA_BUNDLE_MODULES"),
+        "bundle modules table should not be generated when exclude prevents inlining: {}",
+        out
+    );
+}
