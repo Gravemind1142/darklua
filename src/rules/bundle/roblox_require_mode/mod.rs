@@ -174,10 +174,12 @@ impl<'a, 'b, 'resources> RequireRobloxProcessor<'a, 'b, 'resources> {
     fn read_first_string_argument(&self, call: &FunctionCall) -> Option<String> {
         match call.get_arguments() {
             Arguments::String(s) => s.get_string_value().map(|s| s.to_string()),
-            Arguments::Tuple(tuple) if tuple.len() >= 1 => match tuple.iter_values().next().unwrap() {
-                Expression::String(s) => s.get_string_value().map(|s| s.to_string()),
-                _ => None,
-            },
+            Arguments::Tuple(tuple) if tuple.len() >= 1 => {
+                match tuple.iter_values().next().unwrap() {
+                    Expression::String(s) => s.get_string_value().map(|s| s.to_string()),
+                    _ => None,
+                }
+            }
             _ => None,
         }
     }
@@ -312,8 +314,7 @@ impl<'a, 'b, 'resources> RequireRobloxProcessor<'a, 'b, 'resources> {
                 call,
             )?;
 
-            self
-                .module_cache
+            self.module_cache
                 .insert(require_path.to_path_buf(), module_value.clone());
 
             Ok(module_value)
@@ -329,13 +330,13 @@ impl<'a, 'b, 'resources> RequireRobloxProcessor<'a, 'b, 'resources> {
             Some(extension) => match extension.to_string_lossy().as_ref() {
                 "lua" | "luau" => {
                     let parser_timer = Timer::now();
-                    let mut block = self
-                        .options
-                        .parser()
-                        .parse(&content)
-                        .map_err(|parser_error| {
-                            DarkluaError::parser_error(path.to_path_buf(), parser_error)
-                        })?;
+                    let mut block =
+                        self.options
+                            .parser()
+                            .parse(&content)
+                            .map_err(|parser_error| {
+                                DarkluaError::parser_error(path.to_path_buf(), parser_error)
+                            })?;
                     log::debug!(
                         "parsed `{}` in {}",
                         path.display(),
@@ -373,7 +374,9 @@ impl<'a, 'b, 'resources> RequireRobloxProcessor<'a, 'b, 'resources> {
 
                     Ok(RequiredResource::Block(block))
                 }
-                "json" | "json5" => transcode("json", path, json5::from_str::<serde_json::Value>, &content),
+                "json" | "json5" => {
+                    transcode("json", path, json5::from_str::<serde_json::Value>, &content)
+                }
                 "yml" | "yaml" => transcode(
                     "yaml",
                     path,
@@ -492,7 +495,8 @@ pub(crate) fn process_block(
         );
     }
 
-    let mut processor = RequireRobloxProcessor::new(context, options, roblox_require_mode, block.clone());
+    let mut processor =
+        RequireRobloxProcessor::new(context, options, roblox_require_mode, block.clone());
     ScopeVisitor::visit_block(block, &mut processor);
     processor.apply(block, context)
-} 
+}

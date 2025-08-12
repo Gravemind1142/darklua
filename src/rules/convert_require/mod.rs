@@ -44,7 +44,9 @@ impl RequireMode {
     ) -> DarkluaResult<Option<PathBuf>> {
         match self {
             RequireMode::Path(path_mode) => path_mode.find_require(call, context),
-            RequireMode::Roblox(roblox_mode) => roblox_mode.find_require(call, context, current_block),
+            RequireMode::Roblox(roblox_mode) => {
+                roblox_mode.find_require(call, context, current_block)
+            }
         }
     }
 
@@ -115,7 +117,12 @@ impl DerefMut for RequireConverter<'_> {
 }
 
 impl<'a> RequireConverter<'a> {
-    fn new(current: RequireMode, target: RequireMode, context: &'a Context, current_block_clone: Block) -> Self {
+    fn new(
+        current: RequireMode,
+        target: RequireMode,
+        context: &'a Context,
+        current_block_clone: Block,
+    ) -> Self {
         Self {
             identifier_tracker: IdentifierTracker::new(),
             current,
@@ -126,7 +133,10 @@ impl<'a> RequireConverter<'a> {
     }
 
     fn try_require_conversion(&mut self, call: &mut FunctionCall) -> DarkluaResult<()> {
-        if let Some(require_path) = self.current.find_require(call, self.context, &self.current_block_clone)? {
+        if let Some(require_path) =
+            self.current
+                .find_require(call, self.context, &self.current_block_clone)?
+        {
             log::trace!("found require path `{}`", require_path.display());
 
             if let Some(new_arguments) =
@@ -183,7 +193,8 @@ impl Rule for ConvertRequire {
             .initialize(context)
             .map_err(|err| err.to_string())?;
 
-        let mut processor = RequireConverter::new(current_mode, target_mode, context, block.clone());
+        let mut processor =
+            RequireConverter::new(current_mode, target_mode, context, block.clone());
         DefaultVisitor::visit_block(block, &mut processor);
         Ok(())
     }

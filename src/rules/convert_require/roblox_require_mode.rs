@@ -68,11 +68,15 @@ impl RobloxRequireMode {
             _ => None,
         };
 
-        let Some(instance_path) = instance_path else { return Ok(None) };
+        let Some(instance_path) = instance_path else {
+            return Ok(None);
+        };
 
         if let Some(sourcemap) = &self.cached_sourcemap {
             let source_path = utils::normalize_path(context.current_path());
-            if let Some(target_file) = sourcemap.get_file_from_instance_path(&source_path, &instance_path) {
+            if let Some(target_file) =
+                sourcemap.get_file_from_instance_path(&source_path, &instance_path)
+            {
                 return Ok(Some(target_file));
             }
             log::debug!("unable to resolve Roblox instance path to file using sourcemap");
@@ -84,17 +88,21 @@ impl RobloxRequireMode {
         }
     }
 
-    fn parse_expression_to_instance_path(&self, expression: &Expression, context: &Context, current_block: &crate::nodes::Block) -> Option<InstancePath> {
+    fn parse_expression_to_instance_path(
+        &self,
+        expression: &Expression,
+        context: &Context,
+        current_block: &crate::nodes::Block,
+    ) -> Option<InstancePath> {
         match expression {
             Expression::Identifier(id) => match id.get_name().as_str() {
                 "script" => Some(InstancePath::from_script()),
                 "game" => Some(InstancePath::from_root()),
-                other => {
-                    self.resolve_identifier_to_instance_path(other, context, current_block)
-                }
+                other => self.resolve_identifier_to_instance_path(other, context, current_block),
             },
             Expression::Field(field) => {
-                let mut base = self.parse_prefix_to_instance_path(field.get_prefix(), context, current_block)?;
+                let mut base =
+                    self.parse_prefix_to_instance_path(field.get_prefix(), context, current_block)?;
                 let name = field.get_field().get_name();
                 if name == "Parent" {
                     base.parent();
@@ -104,7 +112,8 @@ impl RobloxRequireMode {
                 Some(base)
             }
             Expression::Index(index) => {
-                let mut base = self.parse_prefix_to_instance_path(index.get_prefix(), context, current_block)?;
+                let mut base =
+                    self.parse_prefix_to_instance_path(index.get_prefix(), context, current_block)?;
                 let child_name = match index.get_index() {
                     Expression::String(s) => s.get_string_value()?.to_string(),
                     _ => return None,
@@ -112,13 +121,24 @@ impl RobloxRequireMode {
                 base.child(child_name);
                 Some(base)
             }
-            Expression::Call(call) => self.parse_call_to_instance_path(call, context, current_block),
-            Expression::Parenthese(paren) => self.parse_expression_to_instance_path(paren.inner_expression(), context, current_block),
+            Expression::Call(call) => {
+                self.parse_call_to_instance_path(call, context, current_block)
+            }
+            Expression::Parenthese(paren) => self.parse_expression_to_instance_path(
+                paren.inner_expression(),
+                context,
+                current_block,
+            ),
             _ => None,
         }
     }
 
-    fn parse_prefix_to_instance_path(&self, prefix: &Prefix, context: &Context, current_block: &crate::nodes::Block) -> Option<InstancePath> {
+    fn parse_prefix_to_instance_path(
+        &self,
+        prefix: &Prefix,
+        context: &Context,
+        current_block: &crate::nodes::Block,
+    ) -> Option<InstancePath> {
         match prefix {
             Prefix::Identifier(id) => match id.get_name().as_str() {
                 "script" => Some(InstancePath::from_script()),
@@ -126,7 +146,8 @@ impl RobloxRequireMode {
                 other => self.resolve_identifier_to_instance_path(other, context, current_block),
             },
             Prefix::Field(field) => {
-                let mut base = self.parse_prefix_to_instance_path(field.get_prefix(), context, current_block)?;
+                let mut base =
+                    self.parse_prefix_to_instance_path(field.get_prefix(), context, current_block)?;
                 let name = field.get_field().get_name();
                 if name == "Parent" {
                     base.parent();
@@ -136,7 +157,8 @@ impl RobloxRequireMode {
                 Some(base)
             }
             Prefix::Index(index) => {
-                let mut base = self.parse_prefix_to_instance_path(index.get_prefix(), context, current_block)?;
+                let mut base =
+                    self.parse_prefix_to_instance_path(index.get_prefix(), context, current_block)?;
                 let child_name = match index.get_index() {
                     Expression::String(s) => s.get_string_value()?.to_string(),
                     _ => return None,
@@ -145,13 +167,23 @@ impl RobloxRequireMode {
                 Some(base)
             }
             Prefix::Call(call) => self.parse_call_to_instance_path(call, context, current_block),
-            Prefix::Parenthese(paren) => self.parse_expression_to_instance_path(paren.inner_expression(), context, current_block),
+            Prefix::Parenthese(paren) => self.parse_expression_to_instance_path(
+                paren.inner_expression(),
+                context,
+                current_block,
+            ),
         }
     }
 
-    fn parse_call_to_instance_path(&self, call: &FunctionCall, context: &Context, current_block: &crate::nodes::Block) -> Option<InstancePath> {
+    fn parse_call_to_instance_path(
+        &self,
+        call: &FunctionCall,
+        context: &Context,
+        current_block: &crate::nodes::Block,
+    ) -> Option<InstancePath> {
         let method = call.get_method().map(|m| m.get_name().as_str());
-        let mut base = self.parse_prefix_to_instance_path(call.get_prefix(), context, current_block)?;
+        let mut base =
+            self.parse_prefix_to_instance_path(call.get_prefix(), context, current_block)?;
         match method {
             Some("GetService") => {
                 let child = self.read_first_string_argument(call)?;
@@ -175,21 +207,30 @@ impl RobloxRequireMode {
     fn read_first_string_argument(&self, call: &FunctionCall) -> Option<String> {
         match call.get_arguments() {
             Arguments::String(s) => s.get_string_value().map(|s| s.to_string()),
-            Arguments::Tuple(tuple) if tuple.len() >= 1 => match tuple.iter_values().next().unwrap() {
-                Expression::String(s) => s.get_string_value().map(|s| s.to_string()),
-                _ => None,
-            },
+            Arguments::Tuple(tuple) if tuple.len() >= 1 => {
+                match tuple.iter_values().next().unwrap() {
+                    Expression::String(s) => s.get_string_value().map(|s| s.to_string()),
+                    _ => None,
+                }
+            }
             _ => None,
         }
     }
 
-    fn resolve_identifier_to_instance_path(&self, name: &str, _context: &Context, current_block: &crate::nodes::Block) -> Option<InstancePath> {
+    fn resolve_identifier_to_instance_path(
+        &self,
+        name: &str,
+        _context: &Context,
+        current_block: &crate::nodes::Block,
+    ) -> Option<InstancePath> {
         // find a local assignment defining this identifier and parse its value
         for statement in current_block.iter_statements() {
             if let Statement::LocalAssign(local) = statement {
                 for (var, value) in local.iter_variables().zip(local.iter_values()) {
                     if var.get_identifier().get_name() == name {
-                        if let Some(path) = self.parse_expression_to_instance_path(value, _context, current_block) {
+                        if let Some(path) =
+                            self.parse_expression_to_instance_path(value, _context, current_block)
+                        {
                             return Some(path);
                         }
                     }
@@ -258,10 +299,17 @@ impl RobloxRequireMode {
             );
 
             let require_is_module_folder_name = match current {
-                RequireMode::Path(path_mode) => path_mode.is_module_folder_name(&relative_require_path),
+                RequireMode::Path(path_mode) => {
+                    path_mode.is_module_folder_name(&relative_require_path)
+                }
                 RequireMode::Roblox(_roblox_mode) => {
                     // in Roblox mode, module folder is always `init`
-                    matches!(relative_require_path.file_stem().and_then(std::ffi::OsStr::to_str), Some("init"))
+                    matches!(
+                        relative_require_path
+                            .file_stem()
+                            .and_then(std::ffi::OsStr::to_str),
+                        Some("init")
+                    )
                 }
             };
             // if we are about to make a require to a path like `./x/y/z/init.lua`
@@ -276,7 +324,10 @@ impl RobloxRequireMode {
                 let source_is_module_folder_name = match current {
                     RequireMode::Path(path_mode) => path_mode.is_module_folder_name(&source_path),
                     RequireMode::Roblox(_roblox_mode) => {
-                        matches!(source_path.file_stem().and_then(std::ffi::OsStr::to_str), Some("init"))
+                        matches!(
+                            source_path.file_stem().and_then(std::ffi::OsStr::to_str),
+                            Some("init")
+                        )
                     }
                 };
 

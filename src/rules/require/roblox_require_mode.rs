@@ -8,7 +8,7 @@ use crate::DarkluaError;
 use std::path::{Path, PathBuf};
 
 // Reuse the Rojo sourcemap and instance path data structures from convert_require
-use crate::rules::convert_require::{RojoSourcemap, InstancePath};
+use crate::rules::convert_require::{InstancePath, RojoSourcemap};
 
 /// A require mode for handling Roblox-specific require patterns.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -47,7 +47,9 @@ impl RobloxRequireMode {
             let content = context
                 .resources()
                 .get(rojo_sourcemap_path)
-                .map_err(|err| DarkluaError::from(err).context("while initializing Roblox require mode"))?;
+                .map_err(|err| {
+                    DarkluaError::from(err).context("while initializing Roblox require mode")
+                })?;
             let sourcemap = RojoSourcemap::parse(&content, parent).map_err(|err| {
                 err.context(format!(
                     "unable to parse Rojo sourcemap at `{}`",
@@ -165,13 +167,15 @@ mod test {
         // dependency should be tracked
         let deps: Vec<_> = context.clone().into_dependencies().collect();
         assert!(
-            deps.iter()
-                .any(|p| p.ends_with("default.project.json")),
+            deps.iter().any(|p| p.ends_with("default.project.json")),
             "expected rojo sourcemap to be tracked as dependency, got: {:?}",
             deps
         );
 
-        assert!(mode.cached_sourcemap.is_some(), "sourcemap should be cached");
+        assert!(
+            mode.cached_sourcemap.is_some(),
+            "sourcemap should be cached"
+        );
     }
 
     #[test]
@@ -217,4 +221,4 @@ mod test {
         }
         assert_eq!(instance_path.components().len(), 1);
     }
-} 
+}

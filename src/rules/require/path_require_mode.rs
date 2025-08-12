@@ -144,9 +144,9 @@ impl PathRequireMode {
 
         let normalized = crate::utils::normalize_path_with_current_dir(relative);
         let as_str = normalized.display().to_string();
-        Ok(Some(Arguments::default().with_argument(
-            StringExpression::from_value(as_str),
-        )))
+        Ok(Some(
+            Arguments::default().with_argument(StringExpression::from_value(as_str)),
+        ))
     }
 }
 

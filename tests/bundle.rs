@@ -675,7 +675,19 @@ fn bundle_roblox_require_lua_file() {
 
     let out = resources.get("out.lua").unwrap();
 
-    assert!(out.contains("__DARKLUA_BUNDLE_MODULES"), "missing bundle modules table in output: {}", out);
-    assert!(out.contains("return true"), "inlined module content missing in output: {}", out);
-    assert!(!out.contains("require("), "original require call should be inlined: {}", out);
+    assert!(
+        out.contains("__DARKLUA_BUNDLE_MODULES"),
+        "missing bundle modules table in output: {}",
+        out
+    );
+    assert!(
+        out.contains("return true"),
+        "inlined module content missing in output: {}",
+        out
+    );
+    assert!(
+        !out.contains("require("),
+        "original require call should be inlined: {}",
+        out
+    );
 }

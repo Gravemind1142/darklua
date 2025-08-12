@@ -196,7 +196,11 @@ impl RojoSourcemap {
                 let Some(InstancePathComponent::Child(service_name)) = iter.next() else {
                     return None;
                 };
-                let mut node = self.root_node.children.iter().find(|c| c.name == *service_name)?;
+                let mut node = self
+                    .root_node
+                    .children
+                    .iter()
+                    .find(|c| c.name == *service_name)?;
                 for component in iter {
                     match component {
                         InstancePathComponent::Parent => return None,

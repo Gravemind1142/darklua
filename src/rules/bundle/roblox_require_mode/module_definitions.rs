@@ -33,7 +33,10 @@ struct ModuleDefinition {
 
 impl ModuleDefinition {
     fn new(block: Block, roblox_reference: String) -> Self {
-        Self { block, roblox_reference }
+        Self {
+            block,
+            roblox_reference,
+        }
     }
 }
 
@@ -275,4 +278,4 @@ fn transfer_trivia(mut receiving_token: Token, take_token: &Token) -> Token {
         receiving_token.push_trailing_trivia(kind.with_content(content));
     }
     receiving_token
-} 
+}
