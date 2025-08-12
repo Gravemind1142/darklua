@@ -31,7 +31,7 @@ impl RobloxRequireMode {
         Ok(())
     }
 
-    pub(crate) fn find_require(
+    pub(crate) fn _find_require(
         &self,
         _call: &FunctionCall,
         _context: &Context,
@@ -40,7 +40,7 @@ impl RobloxRequireMode {
         Ok(None)
     }
 
-    pub(crate) fn generate_require(
+    pub(crate) fn _generate_require(
         &self,
         _path: &Path,
         _current_mode: &crate::rules::RequireMode,
@@ -57,7 +57,7 @@ mod test {
 
     #[test]
     fn test_default_roblox_require_mode() {
-        let require_mode = RobloxRequireMode::default();
+        let _require_mode = RobloxRequireMode::default();
         // TODO: Add tests as implementation progresses
     }
 } 

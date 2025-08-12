@@ -59,7 +59,7 @@ impl RequireMode {
         }
     }
 
-    fn is_module_folder_name(&self, path: &Path) -> bool {
+    fn _is_module_folder_name(&self, path: &Path) -> bool {
         match self {
             RequireMode::Path(path_mode) => path_mode.is_module_folder_name(path),
             RequireMode::Roblox(_roblox_mode) => {
