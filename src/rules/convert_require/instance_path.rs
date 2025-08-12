@@ -32,6 +32,12 @@ impl InstancePath {
             .push(InstancePathComponent::Child(child_name.into()));
     }
 
+    // NEW: represent an ancestor lookup by name
+    pub(crate) fn ancestor(&mut self, ancestor_name: impl Into<String>) {
+        self.components
+            .push(InstancePathComponent::Ancestor(ancestor_name.into()));
+    }
+
     pub(crate) fn convert(&self, index_style: &RobloxIndexStyle) -> Prefix {
         let mut components_iter = self.components.iter();
 
@@ -56,6 +62,12 @@ impl InstancePath {
                 }
                 InstancePathComponent::Child(child_name) => {
                     prefix = index_style.index(prefix, child_name);
+                }
+                InstancePathComponent::Ancestor(ancestor_name) => {
+                    prefix = FunctionCall::from_prefix(prefix)
+                        .with_method("FindFirstAncestor")
+                        .with_argument(StringExpression::from_value(ancestor_name))
+                        .into();
                 }
             }
         }
@@ -83,6 +95,7 @@ pub(crate) enum InstancePathRoot {
 pub(crate) enum InstancePathComponent {
     Parent,
     Child(String),
+    Ancestor(String),
 }
 
 pub(crate) fn script_identifier() -> Identifier {

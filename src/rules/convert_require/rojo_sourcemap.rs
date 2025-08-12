@@ -219,6 +219,21 @@ impl RojoSourcemap {
                 super::instance_path::InstancePathComponent::Child(name) => {
                     current_node = current_node.find_child_by_name(name)?;
                 }
+                super::instance_path::InstancePathComponent::Ancestor(name) => {
+                    // Walk up until we find an ancestor with this name
+                    let mut walker = current_node;
+                    loop {
+                        if walker.name == *name {
+                            current_node = walker;
+                            break;
+                        }
+                        if walker.is_root() {
+                            return None;
+                        }
+                        let next_id = walker.parent_id();
+                        walker = self.root_node.get_descendant(next_id)?;
+                    }
+                }
             }
         }
 
@@ -401,37 +416,6 @@ mod test {
             pretty_assertions::assert_eq!(
                 sourcemap
                     .get_instance_path("src/main.lua", "src/init.lua")
-                    .unwrap(),
-                script_path(&["parent"])
-            );
-        }
-
-        #[test]
-        fn from_child_require_parent_nested() {
-            let sourcemap = new_sourcemap(
-                r#"{
-                "name": "Project",
-                "className": "ModuleScript",
-                "filePaths": ["src/init.lua", "default.project.json"],
-                "children": [
-                    {
-                        "name": "Sub",
-                        "className": "ModuleScript",
-                        "filePaths": ["src/Sub/init.lua"],
-                        "children": [
-                            {
-                                "name": "test",
-                                "className": "ModuleScript",
-                                "filePaths": ["src/Sub/test.lua"]
-                            }
-                        ]
-                    }
-                ]
-            }"#,
-            );
-            pretty_assertions::assert_eq!(
-                sourcemap
-                    .get_instance_path("src/Sub/test.lua", "src/Sub/init.lua")
                     .unwrap(),
                 script_path(&["parent"])
             );

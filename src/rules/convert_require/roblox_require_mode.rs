@@ -163,6 +163,11 @@ impl RobloxRequireMode {
                 base.child(child);
                 Some(base)
             }
+            Some("FindFirstAncestor") => {
+                let ancestor = self.read_first_string_argument(call)?;
+                base.ancestor(ancestor);
+                Some(base)
+            }
             _ => None,
         }
     }

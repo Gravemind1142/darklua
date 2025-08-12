@@ -553,6 +553,21 @@ mod sourcemap_to_path {
     }
 
     #[test]
+    fn convert_ancestor_instance_require_to_path() {
+        let resources = memory_resources!(
+            "src/d/init.lua" => "return nil",
+            "src/d/d1.lua" => "local Root = script:FindFirstAncestor('d')\n\nlocal d2 = require(Root.d2)\n\nreturn d2\n",
+            ".darklua.json" => get_darklua_config_with_sourcemap_reverse("./sourcemap.json"),
+            "sourcemap.json" => include_str!("../test_cases/sourcemap/sourcemap.json"),
+        );
+        expect_file_process(
+            &resources,
+            "src/d/d1.lua",
+            "local Root = script:FindFirstAncestor('d')\n\nlocal d2 = require('./d2.lua')\n\nreturn d2\n",
+        );
+    }
+
+    #[test]
     fn datamodel_convert_across_service_instance_to_path() {
         let resources = memory_resources!(
             "Packages/Package1/value.lua" => "return 1",
