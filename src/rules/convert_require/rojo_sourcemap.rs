@@ -247,6 +247,17 @@ impl RojoSourcemap {
         target_node.file_paths.first().cloned()
     }
 
+    /// Returns the absolute InstancePath from DataModel root to the target file.
+    pub(crate) fn get_absolute_instance_path(
+        &self,
+        target_file: impl AsRef<Path>,
+    ) -> Option<InstancePath> {
+        let target_file = target_file.as_ref();
+        let target_node = self.find_node(target_file)?;
+        // Build path from root to the target, skipping the root node itself
+        self.index_descendants(InstancePath::from_root(), &self.root_node, self.hierarchy(target_node).iter().rev().skip(1))
+    }
+
     fn index_descendants<'a>(
         &self,
         mut instance_path: InstancePath,

@@ -93,6 +93,12 @@ impl RobloxRequireMode {
             .and_then(|map| map.get_instance_path(from_file, target_file))
     }
 
+    pub(crate) fn get_absolute_instance_path_for_file(&self, target_file: &Path) -> Option<InstancePath> {
+        self.cached_sourcemap
+            .as_ref()
+            .and_then(|map| map.get_absolute_instance_path(target_file))
+    }
+
     pub(crate) fn generate_require(
         &self,
         _path: &Path,

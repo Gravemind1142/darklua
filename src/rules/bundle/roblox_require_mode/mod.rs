@@ -9,8 +9,8 @@ use std::{iter, mem};
 
 use crate::frontend::DarkluaResult;
 use crate::nodes::{
-    Arguments, Block, DoStatement, Expression, FunctionCall, LocalAssignStatement, Prefix,
-    Statement, StringExpression,
+    Arguments, Block, DoStatement, Expression, FieldExpression, FunctionCall, LocalAssignStatement,
+    Prefix, Statement, StringExpression,
 };
 use crate::process::{
     to_expression, DefaultVisitor, IdentifierTracker, NodeProcessor, NodeVisitor, ScopeVisitor,
@@ -23,7 +23,10 @@ use crate::utils::Timer;
 use crate::{DarkluaError, Resources};
 
 use super::BundleOptions;
-use crate::rules::convert_require::{InstancePath, InstancePathComponent, InstancePathRoot};
+use crate::rules::convert_require::{
+    datamodel_identifier, get_parent_instance, InstancePath, InstancePathComponent,
+    InstancePathRoot,
+};
 use crate::rules::require::RobloxRequireMode;
 
 pub(crate) enum RequiredResource {
@@ -353,6 +356,16 @@ impl<'a, 'b, 'resources> RequireRobloxProcessor<'a, 'b, 'resources> {
                                 );
                                 return Some(path);
                             } else {
+                                // Additionally handle locals initialized from a require call by resolving that require
+                                if let Expression::Call(call) = value {
+                                    if let Some((_, _, abs_instance_path)) = this.require_call(call) {
+                                        log::trace!(
+                                            "resolve_identifier_to_instance_path: resolved `{}` from require call",
+                                            name
+                                        );
+                                        return Some(abs_instance_path);
+                                    }
+                                }
                                 log::warn!(
                                     "resolve_identifier_to_instance_path: failed to resolve value for `{}`",
                                     name
@@ -411,8 +424,46 @@ impl<'a, 'b, 'resources> RequireRobloxProcessor<'a, 'b, 'resources> {
         s
     }
 
+    // Convert an InstancePath to a Prefix starting from DataModel (game)
+    fn instance_path_to_game_prefix(&self, path: &InstancePath) -> Prefix {
+        use crate::rules::convert_require::RobloxIndexStyle;
+        // Manually build a property-based path from `game`, avoiding GetService for the first component
+        let mut components = path.components().iter();
+        let mut prefix: Prefix = datamodel_identifier().into();
 
-    fn require_call(&self, call: &FunctionCall) -> Option<(String, PathBuf)> {
+        if let Some(first) = components.next() {
+            match first {
+                InstancePathComponent::Child(service_name) => {
+                    prefix = FieldExpression::new(prefix, service_name).into();
+                }
+                _ => {
+                    // Fallback to default conversion if unexpected component ordering
+                    return path.convert(&RobloxIndexStyle::Property);
+                }
+            }
+        }
+
+        for component in components {
+            match component {
+                InstancePathComponent::Parent => {
+                    prefix = get_parent_instance(prefix);
+                }
+                InstancePathComponent::Child(child_name) => {
+                    prefix = RobloxIndexStyle::Property.index(prefix, child_name);
+                }
+                InstancePathComponent::Ancestor(ancestor_name) => {
+                    prefix = FunctionCall::from_prefix(prefix)
+                        .with_method("FindFirstAncestor")
+                        .with_argument(StringExpression::from_value(ancestor_name))
+                        .into();
+                }
+            }
+        }
+
+        prefix
+    }
+
+    fn require_call(&self, call: &FunctionCall) -> Option<(String, PathBuf, InstancePath)> {
         if !is_require_call(call, self) {
             return None;
         }
@@ -466,15 +517,15 @@ impl<'a, 'b, 'resources> RequireRobloxProcessor<'a, 'b, 'resources> {
         let abs_instance_path = self
             .roblox_require_mode
             .get_instance_path_for_file(source_path, &target_file)
-            .unwrap_or(instance_path);
+            .unwrap_or(instance_path.clone());
 
         let roblox_reference = self.instance_path_to_game_string(&abs_instance_path);
 
-        Some((roblox_reference, target_file))
+        Some((roblox_reference, target_file, abs_instance_path))
     }
 
     fn try_inline_call(&mut self, call: &FunctionCall) -> Option<Expression> {
-        let (roblox_reference, require_path) = self.require_call(call)?;
+        let (roblox_reference, require_path, abs_instance_path) = self.require_call(call)?;
 
         if self.options.is_excluded(&require_path) {
             log::info!(
@@ -482,7 +533,16 @@ impl<'a, 'b, 'resources> RequireRobloxProcessor<'a, 'b, 'resources> {
                 require_path.display(),
                 self.source.display()
             );
-            return None;
+            // Instead of skipping, rewrite the require argument to a DataModel-rooted path
+            let rewrite_path = self
+                .roblox_require_mode
+                .get_absolute_instance_path_for_file(&require_path)
+                .or_else(|| self.roblox_require_mode.get_instance_path_for_file(&self.source, &require_path))
+                .unwrap_or(abs_instance_path);
+            let new_prefix = self.instance_path_to_game_prefix(&rewrite_path);
+            let mut new_call = call.clone();
+            new_call.set_arguments(Arguments::default().with_argument(new_prefix));
+            return Some(Expression::Call(Box::new(new_call)));
         }
 
         if self.skip_module_paths.contains(&require_path) {

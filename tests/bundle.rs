@@ -816,8 +816,8 @@ fn bundle_roblox_require_respects_excludes() {
     let out = resources.get("out.lua").unwrap();
 
     assert!(
-        out.contains("require(script.value)"),
-        "require should not be inlined due to excludes, but output was: {}",
+        out.contains("require(game.value)"),
+        "require should be rewritten to DataModel path due to excludes, but output was: {}",
         out
     );
     assert!(
@@ -825,4 +825,59 @@ fn bundle_roblox_require_respects_excludes() {
         "bundle modules table should not be generated when exclude prevents inlining: {}",
         out
     );
+}
+
+#[test]
+fn bundle_roblox_require_respects_excludes_with_treat_indexing_as_noopt() {
+    const ROBLOX_BUNDLE_CONFIG_WITH_EXCLUDES: &str =
+        "{ \"rules\": [\"remove_unused_variable\"], \"generator\": \"readable\", \"treat_indexing_as_noopt\": true, \"bundle\": { \"require_mode\": { \"name\": \"roblox\", \"rojo_sourcemap\": \"default.project.json\" }, \"excludes\": [\"**/value.lua\"] } }";
+
+    const ROJO_SOURCEMAP: &str = r#"{
+  "name": "Roblox Place",
+  "className": "DataModel",
+  "filePaths": ["place.project.json"],
+  "children": [
+    {
+      "name": "ReplicatedStorage",
+      "className": "ReplicatedStorage",
+      "children": [
+        {
+          "name": "Project",
+          "className": "ModuleScript",
+          "filePaths": ["src/init.lua"],
+          "children": [
+            {
+              "name": "value",
+              "className": "ModuleScript",
+              "filePaths": ["src/value.lua"]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
+"#;
+
+    let resources = memory_resources!(
+        "src/value.lua" => "return true",
+        "src/init.lua" => "local a = script.value\nlocal value = require(a)",
+        "default.project.json" => ROJO_SOURCEMAP,
+        ".darklua.json" => ROBLOX_BUNDLE_CONFIG_WITH_EXCLUDES,
+    );
+
+    process(
+        &resources,
+        Options::new("src/init.lua").with_output("out.lua"),
+    )
+    .unwrap()
+    .result()
+    .unwrap();
+
+
+    expect_file_process(
+        &resources,
+        "out.lua",
+        r#"require(game.ReplicatedStorage.Project.value)
+"#);
 }
