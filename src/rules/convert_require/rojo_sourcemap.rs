@@ -207,7 +207,20 @@ impl RojoSourcemap {
                         InstancePathComponent::Child(name) => {
                             node = node.children.iter().find(|c| c.name == *name)?;
                         }
-                        InstancePathComponent::Ancestor(_name) => return None,
+                        InstancePathComponent::Ancestor(name) => {
+                            // Start at the parent of the current node and walk upwards
+                            let mut cursor = self.root_node.get_descendant(node.parent_id())?;
+                            loop {
+                                if cursor.name == *name {
+                                    node = cursor;
+                                    break;
+                                }
+                                if cursor.is_root() {
+                                    return None;
+                                }
+                                cursor = self.root_node.get_descendant(cursor.parent_id())?;
+                            }
+                        }
                     }
                 }
                 node
@@ -224,8 +237,8 @@ impl RojoSourcemap {
                             node = node.children.iter().find(|c| c.name == *name)?;
                         }
                         InstancePathComponent::Ancestor(name) => {
-                            // jump to first ancestor with this name
-                            let mut cursor = node;
+                            // jump to first ancestor with this name, starting at the parent
+                            let mut cursor = self.root_node.get_descendant(node.parent_id())?;
                             loop {
                                 if cursor.name == *name {
                                     node = cursor;
@@ -467,6 +480,70 @@ mod test {
                     .unwrap(),
                 script_path(&["parent"])
             );
+        }
+    }
+
+    mod find_first_ancestor {
+        use super::*;
+
+        fn new_sourcemap(content: &str) -> RojoSourcemap {
+            RojoSourcemap::parse(content, "").expect("unable to parse sourcemap")
+        }
+
+        #[test]
+        fn script_rooted_find_first_ancestor_starts_from_parent() {
+            // The layout below contains two nested folders named "d". The current module
+            // is inside the inner-most "d". Using FindFirstAncestor('d') must return the
+            // first ancestor starting from the immediate parent (which is that inner "d").
+            let sourcemap = new_sourcemap(
+                r#"{
+                "name": "Project",
+                "className": "ModuleScript",
+                "filePaths": ["src/init.lua", "default.project.json"],
+                "children": [
+                    {
+                        "name": "d",
+                        "className": "Folder",
+                        "children": [
+                            {
+                                "name": "inner",
+                                "className": "Folder",
+                                "children": [
+                                    {
+                                        "name": "d",
+                                        "className": "Folder",
+                                        "children": [
+                                            {
+                                                "name": "current",
+                                                "className": "ModuleScript",
+                                                "filePaths": ["src/d/inner/d/current.lua"]
+                                            },
+                                            {
+                                                "name": "d2",
+                                                "className": "ModuleScript",
+                                                "filePaths": ["src/d/inner/d/d2.lua"]
+                                            }
+                                        ]
+                                    }
+                                ]
+                            }
+                        ]
+                    }
+                ]
+            }"#,
+            );
+
+            let from_file = Path::new("src/d/inner/d/current.lua");
+
+            let mut instance_path = InstancePath::from_script();
+            instance_path.ancestor("d");
+            instance_path.child("d2");
+
+            let resolved = sourcemap
+                .get_file_from_instance_path(from_file, &instance_path)
+                .expect("expected to resolve file path from instance path");
+
+            assert!(resolved.ends_with("src/d/inner/d/d2.lua"), "{}", format!("{resolved:?}"));
         }
     }
 }
