@@ -64,7 +64,7 @@ impl BuildModuleDefinitions {
         call: &FunctionCall,
     ) -> DarkluaResult<Expression> {
         let mut block = match required_resource {
-            RequiredResource::Block(block) => {
+            RequiredResource::Block(mut block) => {
                 if let Some(LastStatement::Return(return_statement)) = block.get_last_statement() {
                     if return_statement.len() != 1 {
                         return Err(DarkluaError::custom(format!(
@@ -73,10 +73,7 @@ impl BuildModuleDefinitions {
                         )));
                     }
                 } else {
-                    return Err(DarkluaError::custom(format!(
-                        "invalid Lua module at `{}`: module must end with a return statement",
-                        roblox_reference
-                    )));
+                    block.set_last_statement(ReturnStatement::one(Expression::nil()));
                 };
                 block
             }
