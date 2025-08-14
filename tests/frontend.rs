@@ -218,6 +218,18 @@ fn treat_indexing_as_noopt_removes_unused_indexing_as_var() {
     assert_eq!(resources.get("src/test.lua").unwrap(), "");
 }
 
+#[test]
+fn treat_indexing_as_noopt_removes_unused_indexing_as_var_from_game_root() {
+    let resources = memory_resources!(
+        "src/test.lua" => "local CoreGui = game:GetService'CoreGui'\nlocal RobloxGui = CoreGui.RobloxGui\nlocal Modules = RobloxGui.Modules",
+        ".darklua.json" => "{ rules: ['remove_unused_variable'], treat_indexing_as_noopt: true }",
+    );
+
+    process(&resources, Options::new("src")).unwrap().result().unwrap();
+
+    assert_eq!(resources.get("src/test.lua").unwrap(), "");
+}
+
 mod errors {
     use std::path::{Path, PathBuf};
 

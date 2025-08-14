@@ -17,7 +17,7 @@ use crate::{
 };
 
 use crate::process::set_treat_indexing_as_noopt;
-use crate::process::{clear_known_instance_aliases, is_strict_instance_indexing, set_known_instance_aliases};
+use crate::process::{clear_known_instance_aliases, set_known_instance_aliases};
 use crate::rules::ReplaceReferencedTokens;
 use crate::process::{DefaultVisitor, NodeProcessor, NodeVisitor};
 
@@ -30,8 +30,74 @@ impl InstanceAliasCollector {
 
 impl NodeProcessor for InstanceAliasCollector {
     fn process_local_assign_statement(&mut self, assign: &mut crate::nodes::LocalAssignStatement) {
+        // Detect aliases to instance paths (supports chaining through previously discovered aliases)
+        use crate::nodes::{Arguments, Expression, FunctionCall, Prefix};
+
+        fn is_string_literal(expression: &Expression) -> bool {
+            matches!(expression, Expression::String(s) if s.get_string_value().is_some())
+        }
+
+        fn call_has_indexing_semantics(call: &FunctionCall) -> bool {
+            if let Some(method) = call.get_method() {
+                let name = method.get_name();
+                let supported = matches!(
+                    name.as_str(),
+                    "WaitForChild" | "FindFirstChild" | "FindFirstAncestor" | "GetService"
+                );
+                if supported {
+                    match call.get_arguments() {
+                        Arguments::String(s) => s.get_string_value().is_some(),
+                        Arguments::Tuple(tuple) if tuple.len() >= 1 => tuple
+                            .iter_values()
+                            .next()
+                            .map(is_string_literal)
+                            .unwrap_or(false),
+                        _ => false,
+                    }
+                } else {
+                    false
+                }
+            } else {
+                false
+            }
+        }
+
+        fn prefix_is_instance_path(prefix: &Prefix, known: &std::collections::HashSet<String>) -> bool {
+            match prefix {
+                Prefix::Identifier(id) => {
+                    let name = id.get_name();
+                    matches!(name.as_str(), "script" | "game") || known.contains(name.as_str())
+                }
+                Prefix::Field(field) => prefix_is_instance_path(field.get_prefix(), known),
+                Prefix::Index(index) => {
+                    prefix_is_instance_path(index.get_prefix(), known) && is_string_literal(index.get_index())
+                }
+                Prefix::Call(call) => call_has_indexing_semantics(call) && prefix_is_instance_path(call.get_prefix(), known),
+                Prefix::Parenthese(paren) => expression_is_instance_path(paren.inner_expression(), known),
+            }
+        }
+
+        fn expression_is_instance_path(
+            expression: &Expression,
+            known: &std::collections::HashSet<String>,
+        ) -> bool {
+            match expression {
+                Expression::Identifier(id) => {
+                    let name = id.get_name();
+                    matches!(name.as_str(), "script" | "game") || known.contains(name.as_str())
+                }
+                Expression::Field(field) => prefix_is_instance_path(field.get_prefix(), known),
+                Expression::Index(index) => {
+                    prefix_is_instance_path(index.get_prefix(), known) && is_string_literal(index.get_index())
+                }
+                Expression::Call(call) => call_has_indexing_semantics(call) && prefix_is_instance_path(call.get_prefix(), known),
+                Expression::Parenthese(p) => expression_is_instance_path(p.inner_expression(), known),
+                _ => false,
+            }
+        }
+
         for (var, value) in assign.iter_variables().zip(assign.iter_values()) {
-            if is_strict_instance_indexing(value) {
+            if expression_is_instance_path(value, &self.0) {
                 self.0.insert(var.get_identifier().get_name().to_string());
             }
         }
