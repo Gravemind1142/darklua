@@ -135,7 +135,7 @@ impl<'a, 'b, 'resources> RequireRobloxProcessor<'a, 'b, 'resources> {
                 let mut base = self.parse_prefix_to_instance_path(index.get_prefix())?;
                 let child_name = match index.get_index() {
                     Expression::String(s) => s.get_string_value()?.to_string(),
-                    other => {
+                    _ => {
                         log::warn!(
                             "parse_expression_to_instance_path: Index with non-string index: cannot handle this expression"
                         );
@@ -438,6 +438,16 @@ impl<'a, 'b, 'resources> RequireRobloxProcessor<'a, 'b, 'resources> {
                 }
                 _ => {
                     // Fallback to default conversion if unexpected component ordering
+                    log::warn!(
+                        concat!(
+                            "cannot rewrite require to DataModel root (game): ",
+                            "first component is not a service child; falling back to {:?}-rooted path"
+                        ),
+                        match path.root() {
+                            InstancePathRoot::Root => "game",
+                            InstancePathRoot::Script => "script",
+                        }
+                    );
                     return path.convert(&RobloxIndexStyle::Property);
                 }
             }
@@ -509,15 +519,43 @@ impl<'a, 'b, 'resources> RequireRobloxProcessor<'a, 'b, 'resources> {
 
         // Use sourcemap to resolve to a file path
         let source_path = &self.source;
-        let target_file = self
+        let target_file = match self
             .roblox_require_mode
-            .get_file_from_instance_path(source_path, &instance_path)?;
+            .get_file_from_instance_path(source_path, &instance_path)
+        {
+            Some(p) => p,
+            None => {
+                log::warn!(
+                    concat!(
+                        "require_call: unable to resolve file from instance path via sourcemap; ",
+                        "instance path = {:?}, source = `{}`; ",
+                        "skipping exclusion handling and DataModel-root rewrite for this require"
+                    ),
+                    instance_path,
+                    source_path.display()
+                );
+                return None;
+            }
+        };
 
         // Prefer full instance path from DataModel if available
-        let abs_instance_path = self
+        let abs_instance_path = match self
             .roblox_require_mode
             .get_instance_path_for_file(source_path, &target_file)
-            .unwrap_or(instance_path.clone());
+        {
+            Some(p) => p,
+            None => {
+                log::warn!(
+                    concat!(
+                        "unable to compute absolute DataModel path for `{}` from `{}` using sourcemap; ",
+                        "falling back to path inferred from code (may be script-rooted)"
+                    ),
+                    target_file.display(),
+                    source_path.display()
+                );
+                instance_path.clone()
+            }
+        };
 
         let roblox_reference = self.instance_path_to_game_string(&abs_instance_path);
 
@@ -539,6 +577,16 @@ impl<'a, 'b, 'resources> RequireRobloxProcessor<'a, 'b, 'resources> {
                 .get_absolute_instance_path_for_file(&require_path)
                 .or_else(|| self.roblox_require_mode.get_instance_path_for_file(&self.source, &require_path))
                 .unwrap_or(abs_instance_path);
+            if matches!(rewrite_path.root(), InstancePathRoot::Script) {
+                log::warn!(
+                    concat!(
+                        "exclude prevented inlining but could not compute absolute DataModel path for `{}`; ",
+                        "falling back to script-rooted path (require may not use `game` root)"
+                    ),
+                    require_path.display()
+                );
+            }
+            log::trace!("rewrite_path: {:?}", rewrite_path);
             let new_prefix = self.instance_path_to_game_prefix(&rewrite_path);
             let mut new_call = call.clone();
             new_call.set_arguments(Arguments::default().with_argument(new_prefix));
