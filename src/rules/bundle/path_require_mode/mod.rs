@@ -192,7 +192,7 @@ impl<'a, 'b, 'code, 'resources> RequirePathProcessor<'a, 'b, 'code, 'resources> 
         let content = self.resources.get(path).map_err(DarkluaError::from)?;
 
         match path.extension() {
-            Some(extension) => match extension.to_string_lossy().as_ref() {
+            Some(extension) => match extension.to_string_lossy().to_ascii_lowercase().as_str() {
                 "lua" | "luau" => {
                     let parser_timer = Timer::now();
                     let mut block =
