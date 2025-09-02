@@ -20,6 +20,7 @@ use crate::process::set_treat_indexing_as_noopt;
 use crate::process::{clear_known_instance_aliases, set_known_instance_aliases};
 use crate::rules::ReplaceReferencedTokens;
 use crate::process::{DefaultVisitor, NodeProcessor, NodeVisitor};
+use crate::rules::LineMappingSegment;
 
 struct InstanceAliasCollector(std::collections::HashSet<String>);
 
@@ -240,9 +241,11 @@ impl<'a> Worker<'a> {
                     clear_known_instance_aliases();
                 }
 
-                self.bundle(work_item, &mut block, &content)?;
+                let mapping = self.bundle(work_item, &mut block, &content)?;
 
-                work_item.status = WorkProgress::new(content, block).into();
+                let mut wp = WorkProgress::new(content, block);
+                wp.line_mapping = mapping;
+                work_item.status = wp.into();
 
                 self.apply_rules(work_item)
             }
@@ -433,6 +436,14 @@ impl<'a> Worker<'a> {
             .configuration
             .generate_lua(progress.block(), &work_progress.content);
 
+        // Debug: annotate each line with mapping information when available
+        let lua_code = match &work_item.status {
+            WorkStatus::InProgress(progress) => {
+                annotate_with_line_mapping(&lua_code, &progress.line_mapping)
+            }
+            _ => lua_code,
+        };
+
         let generator_time = generator_timer.duration_label();
         log::debug!(
             "generated code for `{}` in {}",
@@ -467,7 +478,7 @@ impl<'a> Worker<'a> {
         work_item: &mut WorkItem,
         block: &mut Block,
         original_code: &str,
-    ) -> DarkluaResult<()> {
+    ) -> DarkluaResult<Vec<LineMappingSegment>> {
         if self.cached_bundler.is_none() {
             if let Some(bundler) = self.configuration.bundle() {
                 self.cached_bundler = Some(bundler);
@@ -475,7 +486,7 @@ impl<'a> Worker<'a> {
         }
         let bundler = match self.cached_bundler.as_ref() {
             Some(bundler) => bundler,
-            None => return Ok(()),
+            None => return Ok(Vec::new()),
         };
 
         log::debug!("beginning bundling from `{}`", work_item.source().display());
@@ -499,6 +510,10 @@ impl<'a> Worker<'a> {
             error
         });
 
+        // capture line mapping before consuming context
+        let mapping = context.clone_line_mapping();
+
+        // then capture dependencies and consume context
         work_item
             .external_file_dependencies
             .extend(context.into_dependencies());
@@ -512,6 +527,70 @@ impl<'a> Worker<'a> {
             bundle_time
         );
 
-        Ok(())
+        Ok(mapping)
     }
+}
+
+fn annotate_with_line_mapping(code: &str, mapping: &[LineMappingSegment]) -> String {
+    log::debug!("annotate_with_line_mapping");
+    if mapping.is_empty() {
+        log::debug!("no mapping");
+        return code.to_string();
+    }
+
+    // Build a per-line mapping
+    let lines: Vec<&str> = code.split('\n').collect();
+    let mut annotations: Vec<Option<String>> = vec![Some("-- map: null".to_string()); lines.len()];
+
+    for segment in mapping.iter() {
+        let start = segment.bundle_start.saturating_sub(1);
+        let end = segment.bundle_end.min(annotations.len());
+        match &segment.source {
+            Some(source) => {
+                for bundle_line in start..end {
+                    let bundle_line_one_based = bundle_line + 1;
+                    let original_line = if source.shift >= 0 {
+                        bundle_line_one_based.saturating_sub(source.shift as usize)
+                    } else {
+                        bundle_line_one_based + source.shift.unsigned_abs()
+                    };
+                    annotations[bundle_line] = Some(format!(
+                        "-- map: {{\"path\":{path:?},\"line\":{line}}}",
+                        path = source.path,
+                        line = original_line
+                    ));
+                }
+            }
+            None => {
+                for bundle_line in start..end {
+                    annotations[bundle_line] = Some("-- map: null".to_string());
+                }
+            }
+        }
+    }
+
+    // Apply annotations to each line
+    let mut out = String::with_capacity(code.len() + annotations.len() * 16);
+    let had_trailing_newline = code.ends_with('\n');
+    for (i, line) in lines.iter().enumerate() {
+        if i > 0 {
+            out.push('\n');
+        }
+        match annotations.get(i).and_then(|a| a.as_ref()) {
+            Some(comment) => {
+                if line.is_empty() {
+                    out.push_str(comment);
+                } else {
+                    out.push_str(line);
+                    out.push(' ');
+                    out.push_str(comment);
+                }
+            }
+            None => out.push_str(line),
+        }
+    }
+    if had_trailing_newline {
+        out.push('\n');
+    }
+    out
 }

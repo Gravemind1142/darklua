@@ -10,7 +10,7 @@ use crate::nodes::{
 };
 use crate::process::utils::{generate_identifier, identifier_permutator, CharPermutator};
 use crate::rules::bundle::RenameTypeDeclarationProcessor;
-use crate::rules::{Context, FlawlessRule, ShiftTokenLine};
+use crate::rules::{Context, FlawlessRule, LineMappingSegment, LineMappingSource, ShiftTokenLine};
 use crate::utils::lines;
 use crate::DarkluaError;
 
@@ -183,9 +183,37 @@ impl BuildModuleDefinitions {
         for module in self.module_definitions.values_mut() {
             let inserted_lines = lines::block_total(&module.block);
 
+            // record mapping for this module segment before shifting (roblox reference has no file path)
+            let original_first = lines::block_first(&module.block);
+            let original_last = lines::block_total(&module.block);
+            if original_last >= original_first && original_first != 0 {
+                let bundle_start = (shift_lines + 1).max(1) as usize;
+                let span = original_last.saturating_sub(original_first) + 1;
+                let bundle_end = bundle_start + span.saturating_sub(1);
+                context.add_line_mapping_segment(LineMappingSegment {
+                    bundle_start,
+                    bundle_end,
+                    source: None,
+                });
+            }
+
             ShiftTokenLine::new(shift_lines).flawless_process(&mut module.block, context);
 
             shift_lines += inserted_lines as isize;
+        }
+
+        // map root block lines before shifting
+        let root_first = lines::block_first(block);
+        let root_last = lines::block_total(block);
+        if root_last >= root_first && root_first != 0 {
+            let bundle_start = (shift_lines + 1).max(1) as usize;
+            let span = root_last.saturating_sub(root_first) + 1;
+            let bundle_end = bundle_start + span.saturating_sub(1);
+            context.add_line_mapping_segment(LineMappingSegment {
+                bundle_start,
+                bundle_end,
+                source: Some(LineMappingSource { path: context.current_path().to_path_buf(), shift: shift_lines }),
+            });
         }
 
         ShiftTokenLine::new(shift_lines).flawless_process(block, context);

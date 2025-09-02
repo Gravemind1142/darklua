@@ -112,8 +112,9 @@ impl Configuration {
 
     pub(crate) fn bundle(&self) -> Option<Bundler> {
         if let Some(bundle_config) = self.bundle.as_ref() {
+            // Always preserve tokens when bundling so we can compute accurate line mappings
             let bundler = Bundler::new(
-                self.build_parser(),
+                Parser::default().preserve_tokens(),
                 bundle_config.require_mode().clone(),
                 bundle_config.excludes(),
             )

@@ -9,6 +9,23 @@ pub(crate) fn block_total(block: &Block) -> usize {
         .unwrap_or(0)
 }
 
+pub(crate) fn block_first(block: &Block) -> usize {
+    // try first statement
+    block
+        .iter_statements()
+        .next()
+        .and_then(first_statement_token)
+        .and_then(get_token_line)
+        // then try last statement (when there is only a last statement)
+        .or_else(|| {
+            block
+                .get_last_statement()
+                .and_then(last_last_statement_token)
+                .and_then(get_token_line)
+        })
+        .unwrap_or(0)
+}
+
 pub(crate) fn statement_total(statement: &Statement) -> usize {
     last_statement_token(statement)
         .and_then(get_token_line)
