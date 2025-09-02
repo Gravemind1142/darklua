@@ -131,7 +131,6 @@ impl<'a, 'resources, 'code> ContextBuilder<'a, 'resources, 'code> {
             blocks: self.blocks,
             project_location: self.project_location,
             dependencies: Default::default(),
-            line_mapping: Default::default(),
         }
     }
 
@@ -153,14 +152,9 @@ pub struct Context<'a, 'resources, 'code> {
     blocks: HashMap<PathBuf, &'a Block>,
     project_location: Option<PathBuf>,
     dependencies: std::cell::RefCell<Vec<PathBuf>>,
-    line_mapping: std::cell::RefCell<Vec<LineMappingSegment>>,
 }
 
 impl Context<'_, '_, '_> {
-    /// Returns the collected line mapping segments as a cloned vector.
-    pub fn clone_line_mapping(&self) -> Vec<LineMappingSegment> {
-        self.line_mapping.borrow().clone()
-    }
     /// Returns the block associated with the given path, if any.
     pub fn block(&self, path: impl AsRef<Path>) -> Option<&Block> {
         self.blocks.get(path.as_ref()).copied()
@@ -208,45 +202,10 @@ impl Context<'_, '_, '_> {
             })
         })
     }
-
-    /// Add a line mapping segment for the bundled output.
-    pub fn add_line_mapping_segment(&self, segment: LineMappingSegment) {
-        if let Ok(mut mapping) = self.line_mapping.try_borrow_mut() {
-            mapping.push(segment);
-        } else {
-            log::warn!("unable to submit line mapping (internal error)");
-        }
-    }
-
-    /// Consume the context and return the collected line mapping segments.
-    pub fn into_line_mapping(self) -> Vec<LineMappingSegment> {
-        self.line_mapping.into_inner()
-    }
 }
 
 /// The result type for rule processing operations.
 pub type RuleProcessResult = Result<(), String>;
-
-/// A continuous segment of bundled lines and how to map them back to a source.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct LineMappingSegment {
-    /// Inclusive start line (1-based) in the bundled output.
-    pub bundle_start: usize,
-    /// Inclusive end line (1-based) in the bundled output.
-    pub bundle_end: usize,
-    /// Mapping back to a source file, or None if the lines were injected by bundling.
-    pub source: Option<LineMappingSource>,
-}
-
-/// Describes how to convert a bundled line back to an original file line.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct LineMappingSource {
-    /// The source file path.
-    pub path: PathBuf,
-    /// The shift applied to original line numbers when they were moved into the bundle.
-    /// To compute the original line: original_line = bundle_line.saturating_sub(shift as usize)
-    pub shift: isize,
-}
 
 /// Defines an interface for rules that can transform Lua blocks.
 ///

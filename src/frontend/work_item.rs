@@ -3,7 +3,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use crate::{nodes::Block, rules::LineMappingSegment, utils::Timer};
+use crate::{nodes::Block, utils::Timer};
 
 use super::{DarkluaError, DarkluaResult};
 
@@ -54,7 +54,6 @@ impl Progress {
 pub(crate) struct WorkProgress {
     pub(crate) content: String,
     pub(crate) progress: Progress,
-    pub(crate) line_mapping: Vec<LineMappingSegment>,
 }
 
 impl WorkProgress {
@@ -62,7 +61,6 @@ impl WorkProgress {
         Self {
             content,
             progress: Progress::new(block),
-            line_mapping: Vec::new(),
         }
     }
 
