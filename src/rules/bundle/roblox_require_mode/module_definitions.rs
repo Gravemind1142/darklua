@@ -1,4 +1,5 @@
 use indexmap::IndexMap;
+use std::path::PathBuf;
 
 use crate::frontend::DarkluaResult;
 use crate::nodes::{
@@ -27,12 +28,11 @@ pub(crate) struct BuildModuleDefinitions {
 #[derive(Debug)]
 struct ModuleDefinition {
     block: Block,
+    path: PathBuf,
 }
 
 impl ModuleDefinition {
-    fn new(block: Block) -> Self {
-        Self { block }
-    }
+    fn new(block: Block, path: PathBuf) -> Self { Self { block, path } }
 }
 
 const BUNDLE_MODULES_VARIABLE_LOAD_FIELD: &str = "load";
@@ -55,6 +55,7 @@ impl BuildModuleDefinitions {
     pub(crate) fn build_module_from_resource(
         &mut self,
         required_resource: RequiredResource,
+        source_path: &std::path::Path,
         roblox_reference: &str,
         call: &FunctionCall,
     ) -> DarkluaResult<Expression> {
@@ -83,8 +84,10 @@ impl BuildModuleDefinitions {
 
         let module_name = self.generate_module_name();
 
-        self.module_definitions
-            .insert(module_name.clone(), ModuleDefinition::new(block));
+        self.module_definitions.insert(
+            module_name.clone(),
+            ModuleDefinition::new(block, source_path.to_path_buf()),
+        );
         self.rename_type_declaration
             .insert_module_types(module_name.clone(), exported_types);
 
@@ -171,7 +174,7 @@ impl BuildModuleDefinitions {
         for module in self.module_definitions.values_mut() {
             let inserted_lines = lines::block_total(&module.block);
 
-            // record mapping for this module segment before shifting (roblox reference has no file path)
+            // record mapping for this module segment before shifting, using source file path via rojo sourcemap resolution earlier
             let original_first = lines::block_first(&module.block);
             let original_last = lines::block_total(&module.block);
             if original_last >= original_first && original_first != 0 {
@@ -181,7 +184,7 @@ impl BuildModuleDefinitions {
                 context.add_line_mapping_segment(LineMappingSegment {
                     bundle_start,
                     bundle_end,
-                    source: None,
+                    source: Some(LineMappingSource { path: module.path.clone(), shift: shift_lines }),
                 });
             }
 
