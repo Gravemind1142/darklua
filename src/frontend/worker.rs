@@ -429,9 +429,138 @@ impl<'a> Worker<'a> {
 
         let generator_timer = Timer::now();
 
-        let lua_code = self
-            .configuration
-            .generate_lua(progress.block(), &work_progress.content);
+        let lua_code = if self.configuration.is_retain_lines() {
+            log::trace!("Retain lines mode enabled for `{}`", source_display);
+            match self
+                .configuration
+                .bundle_config()
+                .and_then(|bundle| bundle.sourcemap())
+                .filter(|sm| sm.enabled)
+            {
+                Some(sm) => {
+                    log::trace!(
+                        "Sourcemap generation requested for `{}` (output path: {:?})",
+                        source_display,
+                        sm.output_path
+                    );
+                    use sourcemap::SourceMapBuilder;
+                    use crate::generator::LuaGenerator;
+                    let mut builder = SourceMapBuilder::new(None);
+                    if let Some(root) = &sm.source_root {
+                        log::trace!("Setting sourcemap source root: {}", root);
+                        builder.set_source_root(Some(root.as_str()));
+                    }
+
+                    // Collect known source paths from the bundler if available
+                    let sources: Vec<String> = match self.cached_bundler.as_ref() {
+                        Some(b) => {
+                            let srcs = b.options().source_paths_snapshot();
+                            log::trace!("Bundler source paths for sourcemap: {:?}", srcs);
+                            srcs
+                        }
+                        None => {
+                            log::trace!("No bundler available, no source paths for sourcemap");
+                            Vec::new()
+                        }
+                    };
+
+                    let mut generator = crate::generator::TokenBasedLuaGenerator::new(&work_progress.content)
+                        .with_sourcemap_and_sources(builder, sources);
+                    generator.write_block(progress.block());
+                    let (code, map_opt) = generator.into_string_and_sourcemap();
+
+                    if let (Some(map), Some(path)) = (map_opt, sm.output_path.as_ref()) {
+                        let mut out = Vec::new();
+                        match map.to_writer(&mut out) {
+                            Err(err) => {
+                                log::warn!("failed to write sourcemap JSON: {}", err);
+                                log::trace!("Sourcemap for `{}` was NOT written due to JSON serialization error", source_display);
+                            }
+                            Ok(_) => match String::from_utf8(out) {
+                                Ok(json) => {
+                                    // Resolve output path relative to configuration location when needed
+                                    let target_path = if path.is_absolute() {
+                                        path.clone()
+                                    } else if let Some(base) = self.configuration.location() {
+                                        base.join(path)
+                                    } else {
+                                        path.clone()
+                                    };
+
+                                    match self.resources.write(&target_path, &json) {
+                                        Ok(_) => {
+                                            let abs_for_log = target_path
+                                                .canonicalize()
+                                                .unwrap_or_else(|_| {
+                                                    if target_path.is_absolute() {
+                                                        target_path.clone()
+                                                    } else {
+                                                        std::env::current_dir()
+                                                            .map(|cwd| cwd.join(&target_path))
+                                                            .unwrap_or_else(|_| target_path.clone())
+                                                    }
+                                                });
+                                            log::trace!(
+                                                "Sourcemap for `{}` successfully written to `{}`",
+                                                source_display,
+                                                abs_for_log.display()
+                                            );
+                                        }
+                                        Err(err) => {
+                                            let abs_for_log = if target_path.is_absolute() {
+                                                target_path.clone()
+                                            } else {
+                                                std::env::current_dir()
+                                                    .map(|cwd| cwd.join(&target_path))
+                                                    .unwrap_or_else(|_| target_path.clone())
+                                            };
+                                            log::warn!(
+                                                "failed to write sourcemap to `{}`: {:?}",
+                                                abs_for_log.display(),
+                                                err
+                                            );
+                                        }
+                                    }
+                                },
+                                Err(err) => {
+                                    log::warn!("failed to convert sourcemap to UTF-8 string: {}", err);
+                                }
+                            },
+                        }
+                    }
+
+                    code
+                }
+                None => {
+                    log::trace!(
+                        "Sourcemap generation NOT requested for `{}`: either no bundle config, no sourcemap config, or sourcemap not enabled",
+                        source_display
+                    );
+                    self.configuration.generate_lua(progress.block(), &work_progress.content)
+                }
+            }
+        } else {
+            // Warn if sourcemaps were requested but the generator mode is incompatible
+            let sourcemap_requested = self
+                .configuration
+                .bundle_config()
+                .and_then(|bundle| bundle.sourcemap())
+                .map_or(false, |sm| sm.enabled);
+
+            if sourcemap_requested {
+                log::warn!(
+                    "sourcemap generation requested for `{}` but current generator mode does not support sourcemaps; enable the `retain_lines` generator to produce sourcemaps",
+                    source_display
+                );
+            } else {
+                log::trace!(
+                    "Retain lines mode NOT enabled for `{}`; skipping sourcemap generation",
+                    source_display
+                );
+            }
+
+            self.configuration.generate_lua(progress.block(), &work_progress.content)
+        };
 
         let generator_time = generator_timer.duration_label();
         log::debug!(

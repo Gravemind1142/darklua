@@ -102,12 +102,17 @@ mod test {
 
         identifier.set_name("newVar");
 
-        assert_eq!(
-            identifier.get_token().unwrap(),
-            &Token::from_position(Position::LineNumber {
-                line_number: 1,
-                content: "newVar".into(),
-            })
-        );
+        if let Some(token) = identifier.get_token() {
+            // token content updated
+            assert_eq!("newVar", token.read(""));
+
+            // line preserved
+            assert_eq!(Some(1), token.get_line_number());
+
+            // identifier name updated
+            assert_eq!("newVar", identifier.get_name());
+        } else {
+            panic!("expected token to be present");
+        }
     }
 }

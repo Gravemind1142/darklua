@@ -1,4 +1,6 @@
 use std::iter;
+use std::collections::HashSet;
+use sourcemap::SourceMapBuilder;
 
 use crate::{
     generator::{utils, LuaGenerator},
@@ -7,12 +9,13 @@ use crate::{
 
 /// This implementation of [LuaGenerator](trait.LuaGenerator.html) outputs the
 /// AST nodes from the tokens associated with each of them.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct TokenBasedLuaGenerator<'a> {
     original_code: &'a str,
     output: String,
     currently_commenting: bool,
     current_line: usize,
+    mapping: Option<std::rc::Rc<std::cell::RefCell<MappingRecorder>>>,
 }
 
 impl<'a> TokenBasedLuaGenerator<'a> {
@@ -22,7 +25,42 @@ impl<'a> TokenBasedLuaGenerator<'a> {
             output: String::new(),
             currently_commenting: false,
             current_line: 1,
+            mapping: None,
         }
+    }
+
+    pub fn with_sourcemap(mut self, builder: SourceMapBuilder) -> Self {
+        self.mapping = Some(std::rc::Rc::new(std::cell::RefCell::new(MappingRecorder::new(builder, Vec::new()))));
+        self
+    }
+
+    /// Attach a sourcemap builder with known source paths indexed by source_id.
+    pub fn with_sourcemap_and_sources(
+        mut self,
+        builder: SourceMapBuilder,
+        sources: Vec<String>,
+    ) -> Self {
+        self.mapping = Some(std::rc::Rc::new(std::cell::RefCell::new(MappingRecorder::new(
+            builder,
+            sources,
+        ))));
+        self
+    }
+
+    /// Consume the generator and return its output and an optional sourcemap.
+    pub fn into_string_and_sourcemap(self) -> (String, Option<sourcemap::SourceMap>) {
+        let map = if let Some(rc) = self.mapping {
+            if let Ok(cell) = std::rc::Rc::try_unwrap(rc) {
+                let rec = cell.into_inner();
+                let mut builder = rec.into_builder();
+                Some(builder.into_sourcemap())
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+        (self.output, map)
     }
 
     fn push_str(&mut self, string: &str) {
@@ -69,6 +107,13 @@ impl<'a> TokenBasedLuaGenerator<'a> {
                 while line_number > self.current_line {
                     self.output.push('\n');
                     self.current_line += 1;
+                }
+            }
+
+            // record first mapping for this generated line if we have origin on token
+            if let Some(map) = &self.mapping {
+                if let (Some(src_line), Some(src_id)) = (token.get_line_number(), token.get_source_id()) {
+                    map.borrow_mut().record_line(self.current_line.saturating_sub(1), src_line.saturating_sub(1), src_id);
                 }
             }
 
@@ -2235,6 +2280,40 @@ impl LuaGenerator for TokenBasedLuaGenerator<'_> {
         self.write_identifier(generic_type_pack.get_name());
         self.push_str("...");
     }
+}
+
+struct MappingRecorder {
+    builder: SourceMapBuilder,
+    recorded_lines: HashSet<usize>,
+    sources: Vec<String>,
+}
+
+impl MappingRecorder {
+    fn new(builder: SourceMapBuilder, sources: Vec<String>) -> Self {
+        Self { builder, recorded_lines: HashSet::new(), sources }
+    }
+
+    fn record_line(&mut self, dst_line0: usize, src_line0: usize, src_id: u32) {
+        if self.recorded_lines.insert(dst_line0) {
+            // columns are 0 for line-level mapping
+            let source_name = self
+                .sources
+                .get(src_id as usize)
+                .map(|s| s.as_str());
+            self.builder.add(
+                dst_line0 as u32,
+                0,
+                src_line0 as u32,
+                0,
+                source_name,
+                None,
+                false,
+            );
+        }
+    }
+
+    #[allow(dead_code)]
+    fn into_builder(self) -> SourceMapBuilder { self.builder }
 }
 
 fn intersect_with_token(token: Token, list_length: usize) -> Vec<Token> {

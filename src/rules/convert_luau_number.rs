@@ -5,6 +5,7 @@ use crate::{
 };
 
 use super::verify_no_rule_properties;
+use crate::utils::origin::{OriginAnchor, token_from_content_with_anchor};
 
 #[derive(Default)]
 struct Processor<'a> {
@@ -16,7 +17,13 @@ impl Processor<'_> {
         let content = token.read(self.code);
 
         if content.contains('_') {
-            token.replace_with_content(content.chars().filter(|c| *c != '_').collect::<String>());
+            let new_content: String = content.chars().filter(|c| *c != '_').collect();
+            if let (Some(line), Some(source_id)) = (token.get_line_number(), token.get_source_id()) {
+                let anchor = OriginAnchor { line_number: line, source_id };
+                *token = token_from_content_with_anchor(new_content, anchor);
+            } else {
+                token.replace_with_content(new_content);
+            }
         }
     }
 }

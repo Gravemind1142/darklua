@@ -11,6 +11,7 @@ use crate::nodes::*;
 #[derive(Debug, Default)]
 pub(crate) struct AstConverter<'a> {
     hold_token_data: bool,
+    source_id: u32,
     work_stack: Vec<ConvertWork<'a>>,
     blocks: Vec<Block>,
     statements: Vec<Statement>,
@@ -33,6 +34,11 @@ impl<'a> AstConverter<'a> {
             hold_token_data,
             ..Default::default()
         }
+    }
+
+    pub(crate) fn with_source_id(mut self, source_id: u32) -> Self {
+        self.source_id = source_id;
+        self
     }
 
     #[inline]
@@ -2350,7 +2356,12 @@ impl<'a> AstConverter<'a> {
     #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace", skip_all))]
     fn convert_token(&self, token: &tokenizer::TokenReference) -> Result<Token, ConvertError> {
         let position = self.convert_token_position(token)?;
-        let mut new_token = Token::new_with_line(position.0, position.1, position.2);
+        let mut new_token = Token::new_with_line_and_source(
+            position.0,
+            position.1,
+            position.2,
+            self.source_id,
+        );
 
         for trivia_token in token.leading_trivia() {
             new_token.push_leading_trivia(self.convert_trivia(trivia_token)?);
@@ -2373,10 +2384,11 @@ impl<'a> AstConverter<'a> {
             TokenKind::Whitespace => TriviaKind::Whitespace,
             _ => return Err(ConvertError::UnexpectedTrivia(token.token_kind())),
         }
-        .at(
+        .at_with_source(
             token.start_position().bytes(),
             token.end_position().bytes(),
             token.start_position().line(),
+            self.source_id,
         );
         Ok(trivia)
     }

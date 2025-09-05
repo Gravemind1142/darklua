@@ -13,6 +13,7 @@ mod ast_fuzzer;
 mod utils;
 
 use ast_fuzzer::*;
+use crate::utils as test_utils;
 
 macro_rules! fuzz_test_expression {
     ($node:expr,  $generator:expr) => {
@@ -21,7 +22,7 @@ macro_rules! fuzz_test_expression {
         generator.write_expression(&node);
         let lua_code = format!("return {}", generator.into_string());
 
-        let mut generated_block = match utils::try_parse_input(&lua_code) {
+        let mut generated_block = match test_utils::try_parse_input(&lua_code) {
             Ok(block) => block,
             Err(error) => panic!(
                 concat!(
@@ -87,7 +88,7 @@ macro_rules! fuzz_test_block {
         // temp_file.push("fuzzed-code.lua");
         // std::fs::write(&temp_file, &lua_code).expect("Unable to write file");
 
-        let generated_block = match utils::try_parse_input(&lua_code) {
+        let generated_block = match test_utils::try_parse_input(&lua_code) {
             Ok(block) => block,
             Err(error) => panic!(
                 concat!(
@@ -134,7 +135,7 @@ fn run_for_minimum_time<F: Fn()>(func: F) {
 
     let duration = Duration::from_millis(millis);
 
-    utils::run_for_minimum_time(duration, func);
+    test_utils::run_for_minimum_time(duration, func);
 }
 
 fn fuzz_three_terms_binary_expressions<T: LuaGenerator + Clone>(generator: T) {

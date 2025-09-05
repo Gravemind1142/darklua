@@ -9,11 +9,13 @@ pub enum Position {
         start: usize,
         end: usize,
         line_number: usize,
+        source_id: u32,
     },
     /// A position that contains content and line number information.
     LineNumber {
         content: Cow<'static, str>,
         line_number: usize,
+        source_id: u32,
     },
     /// A position that only contains content without any line number
     /// information.
@@ -27,6 +29,21 @@ impl Position {
         Self::LineNumber {
             content: content.into(),
             line_number,
+            source_id: 0,
+        }
+    }
+
+    /// Creates a new position with line number and source id information.
+    #[inline]
+    pub fn line_number_with_source(
+        content: impl Into<Cow<'static, str>>,
+        line_number: usize,
+        source_id: u32,
+    ) -> Position {
+        Self::LineNumber {
+            content: content.into(),
+            line_number,
+            source_id,
         }
     }
 }
@@ -48,6 +65,20 @@ impl TriviaKind {
                 start,
                 end,
                 line_number,
+                source_id: 0,
+            },
+            kind: self,
+        }
+    }
+
+    /// Creates a new trivia with line number reference information and source id.
+    pub fn at_with_source(self, start: usize, end: usize, line_number: usize, source_id: u32) -> Trivia {
+        Trivia {
+            position: Position::LineNumberReference {
+                start,
+                end,
+                line_number,
+                source_id,
             },
             kind: self,
         }
@@ -129,6 +160,26 @@ impl Token {
                 start,
                 end,
                 line_number,
+                source_id: 0,
+            },
+            leading_trivia: Vec::new(),
+            trailing_trivia: Vec::new(),
+        }
+    }
+
+    /// Creates a token with a specific source id.
+    pub fn new_with_line_and_source(
+        start: usize,
+        end: usize,
+        line_number: usize,
+        source_id: u32,
+    ) -> Self {
+        Self {
+            position: Position::LineNumberReference {
+                start,
+                end,
+                line_number,
+                source_id,
             },
             leading_trivia: Vec::new(),
             trailing_trivia: Vec::new(),
@@ -143,6 +194,37 @@ impl Token {
             },
             leading_trivia: Vec::new(),
             trailing_trivia: Vec::new(),
+        }
+    }
+
+    /// Creates a new token with content but preserves a specific origin (line and source).
+    pub fn from_content_with_origin<IntoCowStr: Into<Cow<'static, str>>>(
+        content: IntoCowStr,
+        line_number: usize,
+        source_id: u32,
+    ) -> Self {
+        Self {
+            position: Position::LineNumber {
+                content: content.into(),
+                line_number,
+                source_id,
+            },
+            leading_trivia: Vec::new(),
+            trailing_trivia: Vec::new(),
+        }
+    }
+
+    /// Creates a new token with content using the origin of another token if available.
+    pub fn from_origin_like<IntoCowStr: Into<Cow<'static, str>>>(
+        base: &Token,
+        content: IntoCowStr,
+    ) -> Self {
+        match &base.position {
+            Position::LineNumber { line_number, source_id, .. }
+            | Position::LineNumberReference { line_number, source_id, .. } => {
+                Self::from_content_with_origin(content, *line_number, *source_id)
+            }
+            Position::Any { .. } => Self::from_content(content),
         }
     }
 
@@ -219,15 +301,25 @@ impl Token {
         }
     }
 
+    /// Returns the source id of the token, if available.
+    pub fn get_source_id(&self) -> Option<u32> {
+        match &self.position {
+            Position::LineNumber { source_id, .. }
+            | Position::LineNumberReference { source_id, .. } => Some(*source_id),
+            Position::Any { .. } => None,
+        }
+    }
+
     /// Replaces the token's content with new content while preserving line number information.
     pub fn replace_with_content<IntoCowStr: Into<Cow<'static, str>>>(
         &mut self,
         content: IntoCowStr,
     ) {
         self.position = match &self.position {
-            Position::LineNumber { line_number, .. }
-            | Position::LineNumberReference { line_number, .. } => Position::LineNumber {
+            Position::LineNumber { line_number, source_id, .. }
+            | Position::LineNumberReference { line_number, source_id, .. } => Position::LineNumber {
                 line_number: *line_number,
+                source_id: *source_id,
                 content: content.into(),
             },
 
@@ -265,10 +357,12 @@ impl Token {
             start,
             end,
             line_number,
+            source_id,
         } = self.position
         {
             self.position = Position::LineNumber {
                 line_number,
+                source_id,
                 content: code
                     .get(start..end)
                     .expect("unable to extract code from position")
@@ -285,10 +379,12 @@ impl Token {
                 start,
                 end,
                 line_number,
+                source_id,
             } = trivia.position
             {
                 trivia.position = Position::LineNumber {
                     line_number,
+                    source_id,
                     content: code
                         .get(start..end)
                         .expect("unable to extract code from position")

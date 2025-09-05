@@ -5,6 +5,8 @@ mod preserve_arguments_side_effects;
 mod scoped_hash_map;
 mod serde_string_or_struct;
 mod timer;
+pub(crate) mod source_registry;
+pub mod origin;
 
 pub(crate) use expressions_as_statement::{expressions_as_expression, expressions_as_statement};
 pub(crate) use luau_config::{clear_luau_configuration_cache, find_luau_configuration};

@@ -22,6 +22,7 @@ pub(crate) struct BuildModuleDefinitions {
     module_definitions: IndexMap<String, ModuleDefinition>,
     module_name_permutator: CharPermutator,
     rename_type_declaration: RenameTypeDeclarationProcessor,
+    sourcemap_enabled: bool,
 }
 
 #[derive(Debug)]
@@ -39,7 +40,7 @@ const BUNDLE_MODULES_VARIABLE_LOAD_FIELD: &str = "load";
 const BUNDLE_MODULES_VARIABLE_CACHE_FIELD: &str = "cache";
 
 impl BuildModuleDefinitions {
-    pub(crate) fn new(modules_identifier: impl Into<String>) -> Self {
+    pub(crate) fn new(modules_identifier: impl Into<String>, sourcemap_enabled: bool) -> Self {
         let modules_identifier = modules_identifier.into();
         Self {
             modules_identifier: modules_identifier.clone(),
@@ -49,6 +50,7 @@ impl BuildModuleDefinitions {
                 modules_identifier,
                 BUNDLE_MODULES_VARIABLE_LOAD_FIELD,
             ),
+            sourcemap_enabled,
         }
     }
 
@@ -167,16 +169,21 @@ impl BuildModuleDefinitions {
 
         let modules_identifier = Identifier::from(&self.modules_identifier);
 
+        let sourcemap_enabled = self.sourcemap_enabled;
         let mut shift_lines = self.rename_type_declaration.get_type_lines();
         for module in self.module_definitions.values_mut() {
             let inserted_lines = lines::block_total(&module.block);
 
-            ShiftTokenLine::new(shift_lines).flawless_process(&mut module.block, context);
+            if !sourcemap_enabled {
+                ShiftTokenLine::new(shift_lines).flawless_process(&mut module.block, context);
+            }
 
             shift_lines += inserted_lines as isize;
         }
 
-        ShiftTokenLine::new(shift_lines).flawless_process(block, context);
+        if !sourcemap_enabled {
+            ShiftTokenLine::new(shift_lines).flawless_process(block, context);
+        }
 
         let statements = self
             .module_definitions

@@ -10,6 +10,7 @@ use crate::rules::{
 };
 
 use super::{verify_no_rule_properties, RemoveCommentProcessor, RemoveWhitespacesProcessor};
+use crate::utils::origin::{OriginAnchor, token_from_content_with_anchor};
 
 struct Processor {
     identifier_tracker: IdentifierTracker,
@@ -241,8 +242,23 @@ impl Processor {
 
         let mut expression = BinaryExpression::new(operator, value, assignment.get_value().clone());
         if let Some(token) = assignment.get_tokens().map(|tokens| {
-            let mut new_token = tokens.operator.clone();
-            new_token.replace_with_content(operator.to_str());
+            let original = &tokens.operator;
+            let mut new_token = original.clone();
+            // Preserve origin and trivia if available when replacing operator token
+            if let Some(line) = original.get_line_number() {
+                if let Some(source_id) = original.get_source_id() {
+                    let anchor = OriginAnchor { line_number: line, source_id };
+                    new_token = crate::utils::origin::token_from_content_with_anchor_preserve_trivia(
+                        operator.to_str(),
+                        anchor,
+                        original,
+                    );
+                } else {
+                    new_token.replace_with_content(operator.to_str());
+                }
+            } else {
+                new_token.replace_with_content(operator.to_str());
+            }
             new_token
         }) {
             expression.set_token(token);

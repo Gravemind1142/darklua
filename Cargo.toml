@@ -47,6 +47,7 @@ toml = "0.8.19"
 tracing = { version = "0.1", optional = true }
 wax = "0.5.0"
 xxhash-rust = { version = "0.8.12", features = ["xxh3"] }
+sourcemap = "9.2.2"
 
 [dev-dependencies]
 assert_cmd = "2.0.16"

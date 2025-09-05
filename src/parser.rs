@@ -7,6 +7,8 @@ use crate::{
     nodes::*,
     utils::Timer,
 };
+use std::path::Path;
+use crate::utils::source_registry::SourceRegistry;
 
 /// A parser for Luau code that converts it into an abstract syntax tree.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -27,6 +29,50 @@ impl Parser {
             log::trace!("start converting full-moon AST");
             let conversion_timer = Timer::now();
             let block = self.convert_ast(ast).map_err(ParserError::converting);
+            log::trace!(
+                " ⨽ completed AST conversion in {}",
+                conversion_timer.duration_label()
+            );
+            block
+        })
+    }
+
+    /// Parses Lua code into a [`Block`] and tags tokens with the provided source id.
+    pub fn parse_with_source_id(&self, source_id: u32, code: &str) -> Result<Block, ParserError> {
+        let full_moon_parse_timer = Timer::now();
+        let parse_result = full_moon::parse_fallible(code, LuaVersion::luau()).into_result();
+        log::trace!(
+            "full-moon parsing done in {}",
+            full_moon_parse_timer.duration_label()
+        );
+        parse_result.map_err(ParserError::parsing).and_then(|ast| {
+            log::trace!("start converting full-moon AST");
+            let conversion_timer = Timer::now();
+            let mut converter = AstConverter::new(self.hold_token_data).with_source_id(source_id);
+            let block = converter.convert(&ast).map_err(ParserError::converting);
+            log::trace!(
+                " ⨽ completed AST conversion in {}",
+                conversion_timer.duration_label()
+            );
+            block
+        })
+    }
+
+    /// Parses Lua code into a [`Block`] and tags tokens with the given source path.
+    pub fn parse_with_path(&self, path: &Path, code: &str) -> Result<Block, ParserError> {
+        let full_moon_parse_timer = Timer::now();
+        let parse_result = full_moon::parse_fallible(code, LuaVersion::luau()).into_result();
+        log::trace!(
+            "full-moon parsing done in {}",
+            full_moon_parse_timer.duration_label()
+        );
+        parse_result.map_err(ParserError::parsing).and_then(|ast| {
+            log::trace!("start converting full-moon AST");
+            let conversion_timer = Timer::now();
+            let mut registry = SourceRegistry::new();
+            let source_id = registry.intern(path);
+            let mut converter = AstConverter::new(self.hold_token_data).with_source_id(source_id);
+            let block = converter.convert(&ast).map_err(ParserError::converting);
             log::trace!(
                 " ⨽ completed AST conversion in {}",
                 conversion_timer.duration_label()

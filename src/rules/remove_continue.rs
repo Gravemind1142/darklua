@@ -10,6 +10,7 @@ use crate::process::{DefaultPostVisitor, NodePostProcessor, NodePostVisitor, Nod
 use crate::rules::{Context, RuleConfiguration, RuleConfigurationError, RuleProperties};
 
 use super::{verify_no_rule_properties, FlawlessRule};
+use crate::utils::origin::{OriginAnchor, token_from_content_with_anchor};
 
 #[derive(Default)]
 struct Processor {
@@ -113,9 +114,18 @@ impl NodeProcessor for Processor {
                             }
 
                             *last_statement = LastStatement::Break(continue_token.take().map(
-                                |mut continue_token| {
-                                    continue_token.replace_with_content("break");
-                                    continue_token
+                                |mut token| {
+                                    if let (Some(line), Some(source_id)) = (token.get_line_number(), token.get_source_id()) {
+                                        let anchor = OriginAnchor { line_number: line, source_id };
+                                        token = crate::utils::origin::token_from_content_with_anchor_preserve_trivia(
+                                            "break",
+                                            anchor,
+                                            &token,
+                                        );
+                                    } else {
+                                        token.replace_with_content("break");
+                                    }
+                                    token
                                 },
                             ));
 

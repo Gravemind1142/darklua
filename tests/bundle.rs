@@ -11,6 +11,9 @@ const DARKLUA_BUNDLE_ONLY_READABLE_CONFIG: &str =
 const DARKLUA_BUNDLE_ONLY_RETAIN_LINES_CONFIG: &str =
     "{ \"rules\": [], \"generator\": \"retain_lines\", \"bundle\": { \"require_mode\": \"path\" } }";
 
+const DARKLUA_BUNDLE_RETAIN_LINES_WITH_SOURCEMAP: &str =
+    "{ \"rules\": [], \"generator\": \"retain_lines\", \"bundle\": { \"require_mode\": \"path\", \"sourcemap\": { \"enabled\": true, \"output_path\": \"out.lua.map\" } } }";
+
 fn process_main_unchanged(resources: &Resources, main_code: &'static str) {
     resources.write("src/main.lua", main_code).unwrap();
     process(
@@ -650,6 +653,108 @@ data:
 
             process_main_with_error(&resources, "two_different_direct_cycles");
         }
+    }
+}
+
+mod sourcemap_emit {
+    use super::*;
+    use sourcemap::SourceMap;
+
+    #[test]
+    fn retain_lines_path_mode_writes_sourcemap_json() {
+        let resources = memory_resources!(
+            "src/value.lua" => "return true\n",
+            "src/main.lua" => "local value = require('./value.lua')\n",
+            ".darklua.json" => DARKLUA_BUNDLE_RETAIN_LINES_WITH_SOURCEMAP,
+        );
+
+        process(
+            &resources,
+            Options::new("src/main.lua").with_output("out.lua"),
+        )
+        .unwrap()
+        .result()
+        .unwrap();
+
+        // Verify map file exists and is JSON
+        let map = resources.get("out.lua.map").expect("sourcemap must be written");
+        let _: serde_json::Value = serde_json::from_str(&map).expect("valid JSON sourcemap");
+
+        // Use the mapping to resolve the original location of a bundled line containing `return true`
+        let generated = resources.get("out.lua").expect("out.lua must be written");
+        let dst_line0 = generated
+            .lines()
+            .position(|l| l.contains("return true"))
+            .expect("out.lua should contain 'return true'") as u32;
+
+        let sm = SourceMap::from_slice(map.as_bytes()).expect("parse sourcemap");
+        let token = sm.lookup_token(dst_line0, 0).expect("lookup token");
+
+        // Expect it to map back to src/value.lua line 0 (first line)
+        let src_line0 = token.get_src_line();
+        use std::convert::TryInto;
+        let src_name = sm
+            .get_source((token.get_src_id() as usize).try_into().unwrap())
+            .unwrap_or("");
+        assert!(src_name.ends_with("src/value.lua"), "mapped source should be src/value.lua, got: {}", src_name);
+        assert_eq!(src_line0, 0, "expected mapping to first line of value.lua");
+    }
+
+    #[test]
+    fn retain_lines_roblox_mode_writes_sourcemap_json() {
+        const ROBLOX_BUNDLE_RETAIN_LINES_WITH_SOURCEMAP: &str =
+            "{ \"rules\": [], \"generator\": \"retain_lines\", \"bundle\": { \"require_mode\": { \"name\": \"roblox\", \"rojo_sourcemap\": \"default.project.json\" }, \"sourcemap\": { \"enabled\": true, \"output_path\": \"out.lua.map\" } } }";
+
+        const ROJO_SOURCEMAP: &str = r#"{
+        "name": "Project",
+        "className": "ModuleScript",
+        "filePaths": ["src/init.lua", "default.project.json"],
+        "children": [
+            {
+                "name": "value",
+                "className": "ModuleScript",
+                "filePaths": ["src/value.lua"]
+            }
+        ]
+    }"#;
+
+        let resources = memory_resources!(
+            "src/value.lua" => "return true\n",
+            "src/init.lua" => "local value = require(script.value)\n",
+            "default.project.json" => ROJO_SOURCEMAP,
+            ".darklua.json" => ROBLOX_BUNDLE_RETAIN_LINES_WITH_SOURCEMAP,
+        );
+
+        process(
+            &resources,
+            Options::new("src/init.lua").with_output("out.lua"),
+        )
+        .unwrap()
+        .result()
+        .unwrap();
+
+        // Verify map file exists and is JSON
+        let map = resources.get("out.lua.map").expect("sourcemap must be written");
+        let _: serde_json::Value = serde_json::from_str(&map).expect("valid JSON sourcemap");
+
+        // Use the mapping to resolve the original location of a bundled line containing `return true`
+        let generated = resources.get("out.lua").expect("out.lua must be written");
+        let dst_line0 = generated
+            .lines()
+            .position(|l| l.contains("return true"))
+            .expect("out.lua should contain 'return true'") as u32;
+
+        let sm = SourceMap::from_slice(map.as_bytes()).expect("parse sourcemap");
+        let token = sm.lookup_token(dst_line0, 0).expect("lookup token");
+
+        // Expect it to map back to src/value.lua line 0 (first line)
+        let src_line0 = token.get_src_line();
+        use std::convert::TryInto;
+        let src_name = sm
+            .get_source((token.get_src_id() as usize).try_into().unwrap())
+            .unwrap_or("");
+        assert!(src_name.ends_with("src/value.lua"), "mapped source should be src/value.lua, got: {}", src_name);
+        assert_eq!(src_line0, 0, "expected mapping to first line of value.lua");
     }
 }
 

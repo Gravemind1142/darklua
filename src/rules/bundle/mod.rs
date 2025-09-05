@@ -10,6 +10,9 @@ use crate::rules::{
     Context, Rule, RuleConfiguration, RuleConfigurationError, RuleProcessResult, RuleProperties,
 };
 use crate::Parser;
+use crate::utils::source_registry::SourceRegistry;
+use std::cell::RefCell;
+use std::rc::Rc;
 
 pub(crate) use rename_type_declaration::RenameTypeDeclarationProcessor;
 pub use require_mode::BundleRequireMode;
@@ -22,6 +25,8 @@ pub(crate) struct BundleOptions {
     parser: Parser,
     modules_identifier: String,
     excludes: Option<wax::Any<'static>>,
+    registry: Rc<RefCell<SourceRegistry>>,
+    sourcemap_enabled: bool,
 }
 
 impl BundleOptions {
@@ -53,6 +58,8 @@ impl BundleOptions {
                     .expect("exclude globs errors should be filtered and only emit a warning");
                 Some(any_pattern)
             },
+            registry: Rc::new(RefCell::new(SourceRegistry::new())),
+            sourcemap_enabled: false,
         }
     }
 
@@ -70,6 +77,17 @@ impl BundleOptions {
             .map(|any| any.is_match(require))
             .unwrap_or(false)
     }
+
+    pub(crate) fn registry(&self) -> Rc<RefCell<SourceRegistry>> { self.registry.clone() }
+
+    pub(crate) fn source_paths_snapshot(&self) -> Vec<String> {
+        let reg = self.registry.borrow();
+        (0..reg.len())
+            .filter_map(|i| reg.get_path(i as u32).map(|p| p.to_string_lossy().into_owned()))
+            .collect()
+    }
+
+    pub(crate) fn is_sourcemap_enabled(&self) -> bool { self.sourcemap_enabled }
 }
 
 /// A rule that inlines required modules
@@ -93,6 +111,13 @@ impl Bundler {
 
     pub(crate) fn with_modules_identifier(mut self, modules_identifier: impl Into<String>) -> Self {
         self.options.modules_identifier = modules_identifier.into();
+        self
+    }
+
+    pub(crate) fn options(&self) -> &BundleOptions { &self.options }
+
+    pub(crate) fn enable_sourcemap(mut self, enabled: bool) -> Self {
+        self.options.sourcemap_enabled = enabled;
         self
     }
 }

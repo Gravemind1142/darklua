@@ -4,7 +4,7 @@
 mod dense;
 mod readable;
 mod token_based;
-mod utils;
+pub mod utils;
 
 pub use dense::DenseLuaGenerator;
 pub use readable::ReadableLuaGenerator;

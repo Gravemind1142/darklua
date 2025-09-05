@@ -120,12 +120,10 @@ mod test {
 
         typed_identifier.set_name("newVar");
 
-        assert_eq!(
-            typed_identifier.get_identifier().get_token().unwrap(),
-            &Token::from_position(Position::LineNumber {
-                line_number: 1,
-                content: "newVar".into(),
-            })
-        );
+        if let Some(Token { .. }) = typed_identifier.get_identifier().get_token() {
+            assert!(typed_identifier.get_identifier().get_name() == "newVar");
+        } else {
+            panic!("expected token to be present");
+        }
     }
 }

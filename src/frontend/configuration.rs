@@ -110,6 +110,12 @@ impl Configuration {
         self.generator.generate_lua(block, code)
     }
 
+    #[inline]
+    pub(crate) fn is_retain_lines(&self) -> bool { self.generator.is_retain_lines() }
+
+    #[inline]
+    pub(crate) fn bundle_config(&self) -> Option<&BundleConfiguration> { self.bundle.as_ref() }
+
     pub(crate) fn bundle(&self) -> Option<Bundler> {
         if let Some(bundle_config) = self.bundle.as_ref() {
             let bundler = Bundler::new(
@@ -118,6 +124,11 @@ impl Configuration {
                 bundle_config.excludes(),
             )
             .with_modules_identifier(bundle_config.modules_identifier());
+            let bundler = if let Some(sm) = bundle_config.sourcemap() {
+                bundler.enable_sourcemap(sm.enabled)
+            } else {
+                bundler
+            };
             Some(bundler)
         } else {
             None
@@ -239,6 +250,11 @@ impl GeneratorParameters {
             Self::Dense { .. } | Self::Readable { .. } => Parser::default(),
         }
     }
+
+    #[inline]
+    pub(crate) fn is_retain_lines(&self) -> bool {
+        matches!(self, Self::RetainLines)
+    }
 }
 
 impl FromStr for GeneratorParameters {
@@ -272,6 +288,21 @@ pub struct BundleConfiguration {
     modules_identifier: Option<String>,
     #[serde(default, skip_serializing_if = "HashSet::is_empty")]
     excludes: HashSet<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    sourcemap: Option<SourcemapOptions>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields, rename_all = "snake_case")]
+pub struct SourcemapOptions {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub output_path: Option<PathBuf>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source_root: Option<String>,
+    #[serde(default)]
+    pub inline_sources: bool,
 }
 
 impl BundleConfiguration {
@@ -281,6 +312,7 @@ impl BundleConfiguration {
             require_mode: require_mode.into(),
             modules_identifier: None,
             excludes: Default::default(),
+            sourcemap: None,
         }
     }
 
@@ -310,6 +342,8 @@ impl BundleConfiguration {
     pub(crate) fn excludes(&self) -> impl Iterator<Item = &str> {
         self.excludes.iter().map(AsRef::as_ref)
     }
+
+    pub(crate) fn sourcemap(&self) -> Option<&SourcemapOptions> { self.sourcemap.as_ref() }
 }
 
 #[cfg(test)]

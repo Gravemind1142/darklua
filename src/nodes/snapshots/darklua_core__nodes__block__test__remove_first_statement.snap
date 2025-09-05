@@ -1,6 +1,8 @@
 ---
 source: src/nodes/block.rs
+assertion_line: 508
 expression: block
+snapshot_kind: text
 ---
 Block {
     statements: [
@@ -24,6 +26,7 @@ Block {
                                 start: 20,
                                 end: 22,
                                 line_number: 1,
+                                source_id: 0,
                             },
                             leading_trivia: [],
                             trailing_trivia: [
@@ -32,6 +35,7 @@ Block {
                                         start: 22,
                                         end: 23,
                                         line_number: 1,
+                                        source_id: 0,
                                     },
                                     kind: Whitespace,
                                 },
@@ -42,6 +46,7 @@ Block {
                                 start: 23,
                                 end: 26,
                                 line_number: 1,
+                                source_id: 0,
                             },
                             leading_trivia: [],
                             trailing_trivia: [],

@@ -66,7 +66,10 @@ impl<'a, 'b, 'code, 'resources> RequirePathProcessor<'a, 'b, 'code, 'resources> 
                 context.project_location(),
                 context.resources(),
             ),
-            module_definitions: BuildModuleDefinitions::new(options.modules_identifier()),
+            module_definitions: BuildModuleDefinitions::new(
+                options.modules_identifier(),
+                options.is_sourcemap_enabled(),
+            ),
             source: context.current_path().to_path_buf(),
             module_cache: Default::default(),
             require_stack: Default::default(),
@@ -195,13 +198,15 @@ impl<'a, 'b, 'code, 'resources> RequirePathProcessor<'a, 'b, 'code, 'resources> 
             Some(extension) => match extension.to_string_lossy().to_ascii_lowercase().as_str() {
                 "lua" | "luau" => {
                     let parser_timer = Timer::now();
-                    let mut block =
-                        self.options
-                            .parser()
-                            .parse(&content)
-                            .map_err(|parser_error| {
-                                DarkluaError::parser_error(path.to_path_buf(), parser_error)
-                            })?;
+                    // Intern the file for source ids and parse using shared source_id
+                    let source_id = self.options.registry().borrow_mut().intern(path);
+                    let mut block = self
+                        .options
+                        .parser()
+                        .parse_with_source_id(source_id, &content)
+                        .map_err(|parser_error| {
+                            DarkluaError::parser_error(path.to_path_buf(), parser_error)
+                        })?;
                     log::debug!(
                         "parsed `{}` in {}",
                         path.display(),
