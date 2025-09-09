@@ -4,11 +4,13 @@
 mod dense;
 mod readable;
 mod token_based;
+mod retain_lines_compact;
 pub mod utils;
 
 pub use dense::DenseLuaGenerator;
 pub use readable::ReadableLuaGenerator;
 pub use token_based::TokenBasedLuaGenerator;
+pub use retain_lines_compact::RetainLinesCompactLuaGenerator;
 
 use crate::nodes;
 

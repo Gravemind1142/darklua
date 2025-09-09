@@ -7,7 +7,7 @@ use std::{
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    generator::{DenseLuaGenerator, LuaGenerator, ReadableLuaGenerator, TokenBasedLuaGenerator},
+    generator::{DenseLuaGenerator, LuaGenerator, ReadableLuaGenerator, TokenBasedLuaGenerator, RetainLinesCompactLuaGenerator},
     nodes::Block,
     rules::{
         bundle::{BundleRequireMode, Bundler},
@@ -114,6 +114,11 @@ impl Configuration {
     pub(crate) fn is_retain_lines(&self) -> bool { self.generator.is_retain_lines() }
 
     #[inline]
+    pub(crate) fn retain_lines_compact_max_empty(&self) -> Option<usize> {
+        self.generator.retain_lines_compact_max_empty()
+    }
+
+    #[inline]
     pub(crate) fn bundle_config(&self) -> Option<&BundleConfiguration> { self.bundle.as_ref() }
 
     pub(crate) fn bundle(&self) -> Option<Bundler> {
@@ -189,6 +194,12 @@ pub enum GeneratorParameters {
     /// Retains the original line structure of the input code.
     #[serde(alias = "retain-lines")]
     RetainLines,
+    /// Retains lines but compacts consecutive empty lines to a maximum count.
+    RetainLinesCompact {
+        /// Maximum number of consecutive empty lines to allow (default: 1)
+        #[serde(default = "GeneratorParameters::default_retain_lines_compact_max_empty")]
+        max_empty_lines: usize,
+    },
     /// Generates dense, compact code with a specified column span.
     Dense {
         /// The maximum number of characters per line.
@@ -224,10 +235,18 @@ impl GeneratorParameters {
         }
     }
 
+    #[inline]
+    fn default_retain_lines_compact_max_empty() -> usize { 1 }
+
     fn generate_lua(&self, block: &Block, code: &str) -> String {
         match self {
             Self::RetainLines => {
                 let mut generator = TokenBasedLuaGenerator::new(code);
+                generator.write_block(block);
+                generator.into_string()
+            }
+            Self::RetainLinesCompact { max_empty_lines } => {
+                let mut generator = RetainLinesCompactLuaGenerator::new(code, *max_empty_lines);
                 generator.write_block(block);
                 generator.into_string()
             }
@@ -246,14 +265,22 @@ impl GeneratorParameters {
 
     fn build_parser(&self) -> Parser {
         match self {
-            Self::RetainLines => Parser::default().preserve_tokens(),
+            Self::RetainLines | Self::RetainLinesCompact { .. } => Parser::default().preserve_tokens(),
             Self::Dense { .. } | Self::Readable { .. } => Parser::default(),
         }
     }
 
     #[inline]
     pub(crate) fn is_retain_lines(&self) -> bool {
-        matches!(self, Self::RetainLines)
+        matches!(self, Self::RetainLines | Self::RetainLinesCompact { .. })
+    }
+
+    #[inline]
+    pub(crate) fn retain_lines_compact_max_empty(&self) -> Option<usize> {
+        match self {
+            Self::RetainLinesCompact { max_empty_lines } => Some(*max_empty_lines),
+            _ => None,
+        }
     }
 }
 
@@ -264,6 +291,7 @@ impl FromStr for GeneratorParameters {
         Ok(match s {
             // keep "retain-lines" for back-compatibility
             "retain_lines" | "retain-lines" => Self::RetainLines,
+            "retain_lines_compact" | "retain-lines-compact" => Self::RetainLinesCompact { max_empty_lines: Self::default_retain_lines_compact_max_empty() },
             "dense" => Self::Dense {
                 column_span: DEFAULT_COLUMN_SPAN,
             },

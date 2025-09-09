@@ -181,6 +181,8 @@ impl<'a> Worker<'a> {
                 "override with {} generator",
                 match generator {
                     GeneratorParameters::RetainLines => "`retain_lines`".to_owned(),
+                    GeneratorParameters::RetainLinesCompact { max_empty_lines } =>
+                        format!("retain_lines_compact (max_empty_lines={})", max_empty_lines),
                     GeneratorParameters::Dense { column_span } =>
                         format!("dense ({})", column_span),
                     GeneratorParameters::Readable { column_span } =>
@@ -218,15 +220,53 @@ impl<'a> Worker<'a> {
 
                 let content = self.resources.get(work_item.source())?;
 
+                // Ensure bundler is initialized early so we can share its source registry
+                if self.cached_bundler.is_none() {
+                    if let Some(bundler) = self.configuration.bundle() {
+                        self.cached_bundler = Some(bundler);
+                    }
+                }
+
                 let parser = self.configuration.build_parser();
 
                 log::debug!("beginning work on `{}`", source_display);
 
                 let parser_timer = Timer::now();
 
-                let mut block = parser.parse(&content).map_err(|parser_error| {
-                    DarkluaError::parser_error(work_item.source(), parser_error)
-                })?;
+                let mut block = {
+                    // If sourcemaps are enabled for bundling, parse the entry file with the
+                    // bundler's registry source_id so that sourcemap indices align.
+                    let use_bundler_registry = self
+                        .cached_bundler
+                        .as_ref()
+                        .map(|b| b.options().is_sourcemap_enabled())
+                        .unwrap_or(false)
+                        && self.configuration.is_retain_lines();
+
+                    if use_bundler_registry {
+                        if let Some(bundler) = self.cached_bundler.as_ref() {
+                            let registry = bundler.options().registry();
+                            let source_id = registry.borrow_mut().intern(work_item.source());
+                            parser
+                                .parse_with_source_id(source_id, &content)
+                                .map_err(|parser_error| {
+                                    DarkluaError::parser_error(work_item.source(), parser_error)
+                                })?
+                        } else {
+                            parser
+                                .parse(&content)
+                                .map_err(|parser_error| {
+                                    DarkluaError::parser_error(work_item.source(), parser_error)
+                                })?
+                        }
+                    } else {
+                        parser
+                            .parse(&content)
+                            .map_err(|parser_error| {
+                                DarkluaError::parser_error(work_item.source(), parser_error)
+                            })?
+                    }
+                };
 
                 let parser_time = parser_timer.duration_label();
                 log::debug!("parsed `{}` in {}", source_display, parser_time);
@@ -445,6 +485,7 @@ impl<'a> Worker<'a> {
                     );
                     use sourcemap::SourceMapBuilder;
                     use crate::generator::LuaGenerator;
+                    // Initialize SourceMapBuilder with the same source registry order as the bundler
                     let mut builder = SourceMapBuilder::new(None);
                     if let Some(root) = &sm.source_root {
                         log::trace!("Setting sourcemap source root: {}", root);
@@ -463,11 +504,20 @@ impl<'a> Worker<'a> {
                             Vec::new()
                         }
                     };
+                    for s in &sources { builder.add_source(s); }
 
-                    let mut generator = crate::generator::TokenBasedLuaGenerator::new(&work_progress.content)
-                        .with_sourcemap_and_sources(builder, sources);
-                    generator.write_block(progress.block());
-                    let (code, map_opt) = generator.into_string_and_sourcemap();
+                    // Choose retain-lines variant with sourcemap support
+                    let (code, map_opt) = if let Some(max_empty) = self.configuration.retain_lines_compact_max_empty() {
+                        let mut gen = crate::generator::RetainLinesCompactLuaGenerator::new(&work_progress.content, max_empty)
+                            .with_sourcemap_and_sources(builder, sources);
+                        gen.write_block(progress.block());
+                        gen.into_string_and_sourcemap()
+                    } else {
+                        let mut gen = crate::generator::TokenBasedLuaGenerator::new(&work_progress.content)
+                            .with_sourcemap_and_sources(builder, sources);
+                        gen.write_block(progress.block());
+                        gen.into_string_and_sourcemap()
+                    };
 
                     if let (Some(map), Some(path)) = (map_opt, sm.output_path.as_ref()) {
                         let mut out = Vec::new();

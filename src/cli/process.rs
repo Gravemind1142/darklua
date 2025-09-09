@@ -19,7 +19,7 @@ pub struct Options {
     /// Choose a specific configuration file.
     #[arg(long, short, alias = "config-path")]
     pub(crate) config: Option<PathBuf>,
-    /// Choose how Lua code is formatted ('dense', 'readable' or 'retain_lines').
+    /// Choose how Lua code is formatted ('dense', 'readable', 'retain_lines' or 'retain_lines_compact').
     /// This will override the format given by the configuration file.
     #[arg(long)]
     format: Option<LuaFormat>,
@@ -33,6 +33,7 @@ enum LuaFormat {
     Dense,
     Readable,
     RetainLines,
+    RetainLinesCompact,
 }
 
 impl FromStr for LuaFormat {
@@ -44,8 +45,9 @@ impl FromStr for LuaFormat {
             "readable" => Ok(Self::Readable),
             // keep "retain-lines" for back-compatibility
             "retain_lines" | "retain-lines" => Ok(Self::RetainLines),
+            "retain_lines_compact" | "retain-lines-compact" => Ok(Self::RetainLinesCompact),
             _ => Err(format!(
-                "format '{}' does not exist! (possible options are: 'dense', 'readable' or 'retain_lines'",
+                "format '{}' does not exist! (possible options are: 'dense', 'readable', 'retain_lines' or 'retain_lines_compact'",
                 format
             )),
         }
@@ -77,6 +79,7 @@ impl Options {
                 LuaFormat::Dense => GeneratorParameters::default_dense(),
                 LuaFormat::Readable => GeneratorParameters::default_readable(),
                 LuaFormat::RetainLines => GeneratorParameters::RetainLines,
+                LuaFormat::RetainLinesCompact => GeneratorParameters::RetainLinesCompact { max_empty_lines: 1 },
             })
         }
         process_options
