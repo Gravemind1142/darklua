@@ -4,9 +4,9 @@ pub use lua_value::*;
 
 use crate::nodes::*;
 
-// Add a thread-local flag to control whether instance indexing is treated as a no-op
+// Add a thread-local flag to control whether instance indexing is treated as pure (no side effects)
 thread_local! {
-    static TREAT_INDEXING_AS_NOOPT: std::cell::Cell<bool> = std::cell::Cell::new(false);
+    static INSTANCE_INDEXING_IS_PURE: std::cell::Cell<bool> = std::cell::Cell::new(false);
 }
 
 // Maintain known local identifiers that are aliases to instance paths (e.g., `local a = script.Child`)
@@ -18,12 +18,12 @@ thread_local! {
 /// Enable or disable the global evaluator behavior that treats Roblox instance indexing
 /// (dot/bracket access from `script`/`game`, and calls to `WaitForChild`, `FindFirstChild`,
 /// and `FindFirstAncestor`) as having no side effects.
-pub fn set_treat_indexing_as_noopt(enabled: bool) {
-    TREAT_INDEXING_AS_NOOPT.with(|cell| cell.set(enabled));
+pub fn set_instance_indexing_is_pure(enabled: bool) {
+    INSTANCE_INDEXING_IS_PURE.with(|cell| cell.set(enabled));
 }
 
 /// Replace the set of known instance aliases used by the evaluator when
-/// `treat_indexing_as_noopt` is enabled.
+/// `instance_indexing_is_pure` is enabled.
 pub fn set_known_instance_aliases<I>(aliases: I)
 where
     I: IntoIterator<Item = String>,
@@ -43,8 +43,8 @@ pub fn clear_known_instance_aliases() {
 }
 
 #[inline]
-fn is_treat_indexing_as_noopt_enabled() -> bool {
-    TREAT_INDEXING_AS_NOOPT.with(|cell| cell.get())
+fn is_instance_indexing_is_pure_enabled() -> bool {
+    INSTANCE_INDEXING_IS_PURE.with(|cell| cell.get())
 }
 
 fn is_string_literal(expression: &Expression) -> bool {
@@ -371,7 +371,7 @@ impl Evaluator {
 
     #[inline]
     fn call_has_side_effects(&self, call: &FunctionCall) -> bool {
-        if is_treat_indexing_as_noopt_enabled()
+        if is_instance_indexing_is_pure_enabled()
             && call_has_indexing_semantics(call)
             && prefix_is_instance_path(call.get_prefix())
         {
@@ -393,7 +393,7 @@ impl Evaluator {
 
     #[inline]
     fn field_has_side_effects(&self, field: &FieldExpression) -> bool {
-        if is_treat_indexing_as_noopt_enabled() && prefix_is_instance_path(field.get_prefix()) {
+        if is_instance_indexing_is_pure_enabled() && prefix_is_instance_path(field.get_prefix()) {
             return false;
         }
         !self.pure_metamethods || self.prefix_has_side_effects(field.get_prefix())
@@ -401,7 +401,7 @@ impl Evaluator {
 
     #[inline]
     fn index_has_side_effects(&self, index: &IndexExpression) -> bool {
-        if is_treat_indexing_as_noopt_enabled()
+        if is_instance_indexing_is_pure_enabled()
             && prefix_is_instance_path(index.get_prefix())
             && is_string_literal(index.get_index())
         {

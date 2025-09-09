@@ -811,9 +811,9 @@ fn bundle_roblox_require() {
 }
 
 #[test]
-fn bundle_roblox_require_respects_treat_indexing_as_noopt() {
+fn bundle_roblox_require_respects_instance_indexing_is_pure() {
     const ROBLOX_BUNDLE_CONFIG: &str =
-        "{ \"rules\": [\"remove_unused_variable\"], \"generator\": \"readable\", \"treat_indexing_as_noopt\": true, \"bundle\": { \"require_mode\": { \"name\": \"roblox\", \"rojo_sourcemap\": \"default.project.json\" } } }";
+        "{ \"rules\": [\"remove_unused_variable\"], \"generator\": \"readable\", \"instance_indexing_is_pure\": true, \"bundle\": { \"require_mode\": { \"name\": \"roblox\", \"rojo_sourcemap\": \"default.project.json\" } } }";
 
     const ROJO_SOURCEMAP: &str = r#"{
         "name": "Project",
@@ -933,9 +933,9 @@ fn bundle_roblox_require_respects_excludes() {
 }
 
 #[test]
-fn bundle_roblox_require_respects_excludes_with_treat_indexing_as_noopt() {
+fn bundle_roblox_require_respects_excludes_with_instance_indexing_is_pure() {
     const ROBLOX_BUNDLE_CONFIG_WITH_EXCLUDES: &str =
-        "{ \"rules\": [\"remove_unused_variable\"], \"generator\": \"readable\", \"treat_indexing_as_noopt\": true, \"bundle\": { \"require_mode\": { \"name\": \"roblox\", \"rojo_sourcemap\": \"default.project.json\" }, \"excludes\": [\"**/value.lua\"] } }";
+        "{ \"rules\": [\"remove_unused_variable\"], \"generator\": \"readable\", \"instance_indexing_is_pure\": true, \"bundle\": { \"require_mode\": { \"name\": \"roblox\", \"rojo_sourcemap\": \"default.project.json\" }, \"excludes\": [\"**/value.lua\"] } }";
 
     const ROJO_SOURCEMAP: &str = r#"{
   "name": "Roblox Place",

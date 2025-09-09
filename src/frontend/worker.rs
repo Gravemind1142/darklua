@@ -16,7 +16,7 @@ use crate::{
     GeneratorParameters,
 };
 
-use crate::process::set_treat_indexing_as_noopt;
+use crate::process::set_instance_indexing_is_pure;
 use crate::process::{clear_known_instance_aliases, set_known_instance_aliases};
 use crate::rules::ReplaceReferencedTokens;
 use crate::process::{DefaultVisitor, NodeProcessor, NodeVisitor};
@@ -204,7 +204,7 @@ impl<'a> Worker<'a> {
         );
 
         // Apply global evaluator behavior based on configuration
-        set_treat_indexing_as_noopt(self.configuration.treat_indexing_as_noopt());
+        set_instance_indexing_is_pure(self.configuration.instance_indexing_is_pure());
 
         Ok(())
     }
@@ -272,7 +272,7 @@ impl<'a> Worker<'a> {
                 log::debug!("parsed `{}` in {}", source_display, parser_time);
 
                 // If configured, precompute aliases to instance paths for this block
-                if self.configuration.treat_indexing_as_noopt() {
+                if self.configuration.instance_indexing_is_pure() {
                     let mut collector = InstanceAliasCollector::new();
                     DefaultVisitor::visit_block(&mut block, &mut collector);
                     set_known_instance_aliases(collector.into_set());
@@ -399,7 +399,7 @@ impl<'a> Worker<'a> {
             let rule_timer = Timer::now();
 
             // Recompute instance aliases prior to running each rule to reflect any changes
-            if self.configuration.treat_indexing_as_noopt() {
+            if self.configuration.instance_indexing_is_pure() {
                 let mut collector = InstanceAliasCollector::new();
                 DefaultVisitor::visit_block(block, &mut collector);
                 set_known_instance_aliases(collector.into_set());
@@ -436,7 +436,7 @@ impl<'a> Worker<'a> {
         }
 
         // Final cleanup pass to remove variables that became unused after prior rules
-        if self.configuration.treat_indexing_as_noopt() {
+        if self.configuration.instance_indexing_is_pure() {
             let cleanup_context = self
                 .create_rule_context(work_item.data.source(), &work_progress.content)
                 .build();

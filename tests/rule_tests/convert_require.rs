@@ -507,11 +507,11 @@ mod sourcemap_to_path {
         )
     }
 
-    fn get_darklua_config_with_sourcemap_reverse_with_treat_indexing_as_noopt(sourcemap_path: &str) -> String {
+    fn get_darklua_config_with_sourcemap_reverse_with_instance_indexing_is_pure(sourcemap_path: &str) -> String {
         format!(
             r#"{{
                 generator: 'retain_lines',
-                treat_indexing_as_noopt: true,
+                instance_indexing_is_pure: true,
                 rules: [
                     'remove_unused_variable',
                     {{
@@ -624,7 +624,7 @@ mod sourcemap_to_path {
         let resources = memory_resources!(
             "Packages/Package1/value.lua" => "return 1",
             "main.server.lua" => "local ReplicatedStorage = game:GetService('ReplicatedStorage')\nlocal x = ReplicatedStorage.Project\n\nlocal value = require(x.Packages.Package1.value)\n\nreturn value\n",
-            ".darklua.json" => get_darklua_config_with_sourcemap_reverse_with_treat_indexing_as_noopt("./sourcemap.json"),
+            ".darklua.json" => get_darklua_config_with_sourcemap_reverse_with_instance_indexing_is_pure("./sourcemap.json"),
             "sourcemap.json" => include_str!("../test_cases/sourcemap/place-sourcemap.json"),
         );
         // Path relative to project root (same directory as main.server.lua)

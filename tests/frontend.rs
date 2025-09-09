@@ -173,20 +173,20 @@ fn use_default_json5_config_in_place() {
 }
 
 #[test]
-fn deserialize_treat_indexing_as_noopt_flag() {
+fn deserialize_instance_indexing_is_pure_flag() {
     let config: darklua_core::Configuration =
-        json5::from_str("{ treat_indexing_as_noopt: true }").unwrap();
-    assert!(config.treat_indexing_as_noopt());
-    // round-trip
+        json5::from_str("{ instance_indexing_is_pure: true }").unwrap();
+    assert!(config.instance_indexing_is_pure());
+    // round-trip uses the new name
     let serialized = json5::to_string(&config).unwrap();
-    assert!(serialized.contains("treat_indexing_as_noopt"));
+    assert!(serialized.contains("instance_indexing_is_pure"));
 }
 
 #[test]
-fn treat_indexing_as_noopt_removes_unused_instance_indexing_calls() {
+fn instance_indexing_is_pure_removes_unused_instance_indexing_calls() {
     let resources = memory_resources!(
         "src/test.lua" => "local a = script.Parent:FindFirstChild('X')",
-        ".darklua.json" => "{ rules: ['remove_unused_variable'], treat_indexing_as_noopt: true }",
+        ".darklua.json" => "{ rules: ['remove_unused_variable'], instance_indexing_is_pure: true }",
     );
 
     process(&resources, Options::new("src")).unwrap().result().unwrap();
@@ -195,10 +195,10 @@ fn treat_indexing_as_noopt_removes_unused_instance_indexing_calls() {
 }
 
 #[test]
-fn treat_indexing_as_noopt_removes_unused_dot_and_bracket_indexing() {
+fn instance_indexing_is_pure_removes_unused_dot_and_bracket_indexing() {
     let resources = memory_resources!(
         "src/test.lua" => "local a = script.Child.Module\nlocal b = script['Child']['Module']",
-        ".darklua.json" => "{ rules: ['remove_unused_variable'], treat_indexing_as_noopt: true }",
+        ".darklua.json" => "{ rules: ['remove_unused_variable'], instance_indexing_is_pure: true }",
     );
 
     process(&resources, Options::new("src")).unwrap().result().unwrap();
@@ -207,10 +207,10 @@ fn treat_indexing_as_noopt_removes_unused_dot_and_bracket_indexing() {
 }
 
 #[test]
-fn treat_indexing_as_noopt_removes_unused_indexing_as_var() {
+fn instance_indexing_is_pure_removes_unused_indexing_as_var() {
     let resources = memory_resources!(
         "src/test.lua" => "local a = script.Child\nlocal b = a.Module",
-        ".darklua.json" => "{ rules: ['remove_unused_variable'], treat_indexing_as_noopt: true }",
+        ".darklua.json" => "{ rules: ['remove_unused_variable'], instance_indexing_is_pure: true }",
     );
 
     process(&resources, Options::new("src")).unwrap().result().unwrap();
@@ -219,10 +219,10 @@ fn treat_indexing_as_noopt_removes_unused_indexing_as_var() {
 }
 
 #[test]
-fn treat_indexing_as_noopt_removes_unused_indexing_as_var_from_game_root() {
+fn instance_indexing_is_pure_removes_unused_indexing_as_var_from_game_root() {
     let resources = memory_resources!(
         "src/test.lua" => "local CoreGui = game:GetService'CoreGui'\nlocal RobloxGui = CoreGui.RobloxGui\nlocal Modules = RobloxGui.Modules",
-        ".darklua.json" => "{ rules: ['remove_unused_variable'], treat_indexing_as_noopt: true }",
+        ".darklua.json" => "{ rules: ['remove_unused_variable'], instance_indexing_is_pure: true }",
     );
 
     process(&resources, Options::new("src")).unwrap().result().unwrap();
