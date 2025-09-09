@@ -24,9 +24,13 @@ pub const BUNDLER_RULE_NAME: &str = "bundler";
 pub(crate) struct BundleOptions {
     parser: Parser,
     modules_identifier: String,
+    // Keep raw patterns so we can (re)compile them when a project root is provided
+    exclude_patterns: Vec<String>,
     excludes: Option<wax::Any<'static>>,
     registry: Rc<RefCell<SourceRegistry>>,
     sourcemap_enabled: bool,
+    // Optional project root used to resolve relative exclude patterns like "./" or "../"
+    project_root: Option<std::path::PathBuf>,
 }
 
 impl BundleOptions {
@@ -35,32 +39,18 @@ impl BundleOptions {
         modules_identifier: impl Into<String>,
         excludes: impl Iterator<Item = &'a str>,
     ) -> Self {
-        let excludes: Vec<_> = excludes
-            .filter_map(|exclusion| match wax::Glob::new(exclusion) {
-                Ok(glob) => Some(glob.into_owned()),
-                Err(err) => {
-                    log::warn!(
-                        "unable to create exclude matcher from `{}`: {}",
-                        exclusion,
-                        err.to_string()
-                    );
-                    None
-                }
-            })
-            .collect();
-        Self {
+        let exclude_patterns: Vec<String> = excludes.map(|s| s.to_owned()).collect();
+        let mut options = Self {
             parser,
             modules_identifier: modules_identifier.into(),
-            excludes: if excludes.is_empty() {
-                None
-            } else {
-                let any_pattern = wax::any::<wax::Glob, _>(excludes)
-                    .expect("exclude globs errors should be filtered and only emit a warning");
-                Some(any_pattern)
-            },
+            exclude_patterns,
+            excludes: None,
             registry: Rc::new(RefCell::new(SourceRegistry::new())),
             sourcemap_enabled: false,
-        }
+            project_root: None,
+        };
+        options.rebuild_excludes();
+        options
     }
 
     fn parser(&self) -> &Parser {
@@ -88,6 +78,48 @@ impl BundleOptions {
     }
 
     pub(crate) fn is_sourcemap_enabled(&self) -> bool { self.sourcemap_enabled }
+
+    fn rebuild_excludes(&mut self) {
+        // Compile provided patterns and, if a project root is set, also compile
+        // project-root-resolved versions of relative patterns (starting with '.' or '..').
+        let mut globs: Vec<wax::Glob> = Vec::new();
+        for pattern in &self.exclude_patterns {
+            match wax::Glob::new(pattern) {
+                Ok(glob) => globs.push(glob.into_owned()),
+                Err(err) => log::warn!(
+                    "unable to create exclude matcher from `{}`: {}",
+                    pattern,
+                    err.to_string()
+                ),
+            }
+
+            if let Some(root) = &self.project_root {
+                let is_relative = pattern.starts_with('.') || pattern.starts_with("..");
+                if is_relative {
+                    use crate::utils::normalize_path_with_current_dir;
+                    let resolved = normalize_path_with_current_dir(root.join(pattern));
+                    let resolved_str = resolved.to_string_lossy();
+                    match wax::Glob::new(&resolved_str) {
+                        Ok(glob) => globs.push(glob.into_owned()),
+                        Err(err) => log::warn!(
+                            "unable to create exclude matcher from project-resolved `{}`: {}",
+                            resolved_str,
+                            err.to_string()
+                        ),
+                    }
+                }
+            }
+        }
+
+        self.excludes = if globs.is_empty() {
+            None
+        } else {
+            Some(
+                wax::any::<wax::Glob, _>(globs)
+                    .expect("exclude globs errors should be filtered and only emit a warning"),
+            )
+        };
+    }
 }
 
 /// A rule that inlines required modules
@@ -111,6 +143,12 @@ impl Bundler {
 
     pub(crate) fn with_modules_identifier(mut self, modules_identifier: impl Into<String>) -> Self {
         self.options.modules_identifier = modules_identifier.into();
+        self
+    }
+
+    pub(crate) fn with_project_root(mut self, project_root: impl Into<std::path::PathBuf>) -> Self {
+        self.options.project_root = Some(project_root.into());
+        self.options.rebuild_excludes();
         self
     }
 

@@ -119,6 +119,18 @@ impl<'a, 'b, 'code, 'resources> RequirePathProcessor<'a, 'b, 'code, 'resources> 
             }
         };
 
+        // Re-check excludes against the resolved filesystem path to support
+        // relative patterns resolved from the project root.
+        if self.options.is_excluded(&require_path) {
+            log::info!(
+                "exclude `{}` (resolved from `{}`) from bundle [from `{}`]",
+                require_path.display(),
+                literal_require_path.display(),
+                self.source.display()
+            );
+            return None;
+        }
+
         log::debug!(
             "found require call to path `{}` (normalized `{}`)",
             literal_require_path.display(),

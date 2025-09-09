@@ -129,6 +129,12 @@ impl Configuration {
                 bundle_config.excludes(),
             )
             .with_modules_identifier(bundle_config.modules_identifier());
+            // Pass project root to support relative exclude patterns
+            let bundler = if let Some(root) = self.location() {
+                bundler.with_project_root(root)
+            } else {
+                bundler
+            };
             let bundler = if let Some(sm) = bundle_config.sourcemap() {
                 bundler.enable_sourcemap(sm.enabled)
             } else {
