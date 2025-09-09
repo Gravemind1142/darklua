@@ -493,7 +493,7 @@ impl<'a> Worker<'a> {
                     }
 
                     // Collect known source paths from the bundler if available
-                    let sources: Vec<String> = match self.cached_bundler.as_ref() {
+                    let mut sources: Vec<String> = match self.cached_bundler.as_ref() {
                         Some(b) => {
                             let srcs = b.options().source_paths_snapshot();
                             log::trace!("Bundler source paths for sourcemap: {:?}", srcs);
@@ -504,6 +504,54 @@ impl<'a> Worker<'a> {
                             Vec::new()
                         }
                     };
+
+                    // Optionally relativize source paths to avoid leaking absolute paths
+                    let relative_base: Option<std::path::PathBuf> = if let Some(root) = &sm.relative_to {
+                        // If the configured base is relative, resolve it against the configuration location when available
+                        let candidate = std::path::PathBuf::from(root);
+                        if candidate.is_absolute() {
+                            Some(candidate)
+                        } else if let Some(cfg_loc) = self.configuration.location() {
+                            Some(cfg_loc.join(candidate))
+                        } else {
+                            Some(candidate)
+                        }
+                    } else if let Some(cfg_loc) = self.configuration.location() {
+                        Some(cfg_loc.to_path_buf())
+                    } else {
+                        None
+                    };
+
+                    if let Some(base) = relative_base.as_ref() {
+                        let base = crate::utils::normalize_path_with_current_dir(base);
+                        sources = sources
+                            .into_iter()
+                            .map(|s| {
+                                let p = std::path::Path::new(&s);
+                                match p.strip_prefix(&base) {
+                                    Ok(rel) => rel.to_string_lossy().replace('\\', "/"),
+                                    Err(_) => s,
+                                }
+                            })
+                            .collect();
+                    }
+
+                    // Set the sourcemap "file" to the generated output, respecting the same relative base
+                    {
+                        let out_path_norm = crate::utils::normalize_path_with_current_dir(work_item.data.output());
+                        let file_path = if let Some(base) = relative_base.as_ref() {
+                            let base = crate::utils::normalize_path_with_current_dir(base);
+                            match out_path_norm.strip_prefix(&base) {
+                                Ok(rel) => rel.to_path_buf(),
+                                Err(_) => out_path_norm.clone(),
+                            }
+                        } else {
+                            out_path_norm.clone()
+                        };
+                        let file_string = file_path.to_string_lossy().replace('\\', "/");
+                        builder.set_file(Some(file_string.as_str()));
+                    }
+
                     for s in &sources { builder.add_source(s); }
 
                     // Choose retain-lines variant with sourcemap support

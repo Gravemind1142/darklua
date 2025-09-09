@@ -335,6 +335,8 @@ pub struct SourcemapOptions {
     pub output_path: Option<PathBuf>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub source_root: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", alias = "sources_relative_to")]
+    pub relative_to: Option<PathBuf>,
     #[serde(default)]
     pub inline_sources: bool,
 }
