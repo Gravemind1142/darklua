@@ -331,6 +331,10 @@ pub struct SourcemapOptions {
     pub enabled: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub output_path: Option<PathBuf>,
+    /// Optional override for the generated sourcemap `file` field.
+    /// When set, this exact string will be written as the `file` value in the map.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub file: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub source_root: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none", alias = "sources_relative_to")]

@@ -536,20 +536,25 @@ impl<'a> Worker<'a> {
                             .collect();
                     }
 
-                    // Set the sourcemap "file" to the generated output, respecting the same relative base
+                    // Set the sourcemap "file". If an explicit override is provided, use it; otherwise
+                    // compute from the generated output path, respecting the same relative base.
                     {
-                        let out_path_norm = crate::utils::normalize_path_with_current_dir(work_item.data.output());
-                        let file_path = if let Some(base) = relative_base.as_ref() {
-                            let base = crate::utils::normalize_path_with_current_dir(base);
-                            match out_path_norm.strip_prefix(&base) {
-                                Ok(rel) => rel.to_path_buf(),
-                                Err(_) => out_path_norm.clone(),
-                            }
+                        if let Some(override_file) = sm.file.as_ref() {
+                            builder.set_file(Some(override_file.as_str()));
                         } else {
-                            out_path_norm.clone()
-                        };
-                        let file_string = file_path.to_string_lossy().replace('\\', "/");
-                        builder.set_file(Some(file_string.as_str()));
+                            let out_path_norm = crate::utils::normalize_path_with_current_dir(work_item.data.output());
+                            let file_path = if let Some(base) = relative_base.as_ref() {
+                                let base = crate::utils::normalize_path_with_current_dir(base);
+                                match out_path_norm.strip_prefix(&base) {
+                                    Ok(rel) => rel.to_path_buf(),
+                                    Err(_) => out_path_norm.clone(),
+                                }
+                            } else {
+                                out_path_norm.clone()
+                            };
+                            let file_string = file_path.to_string_lossy().replace('\\', "/");
+                            builder.set_file(Some(file_string.as_str()));
+                        }
                     }
 
                     for s in &sources { builder.add_source(s); }
