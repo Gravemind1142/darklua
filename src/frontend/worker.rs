@@ -500,6 +500,41 @@ impl<'a> Worker<'a> {
                     };
 
 
+                    // Pre-register all known source paths so the sourcemap `sources` field
+                    // contains every file that participated in the bundle, even if some
+                    // do not end up with explicit mappings on certain lines.
+                    {
+                        use std::path::PathBuf;
+                        let paths: Vec<PathBuf> = if let Some(bundler) = self.cached_bundler.as_ref() {
+                            bundler
+                                .options()
+                                .source_paths_snapshot()
+                                .into_iter()
+                                .map(PathBuf::from)
+                                .collect()
+                        } else {
+                            let reg = self.shared_registry.borrow();
+                            (0..reg.len())
+                                .filter_map(|i| reg.get_path(i as u32).map(|p| p.to_path_buf()))
+                                .collect()
+                        };
+
+                        for p in paths {
+                            // Normalize and relativize similar to how MappingRecorder does
+                            let p_norm = crate::utils::normalize_path_with_current_dir(&p);
+                            let src_name = if let Some(base) = &relative_base {
+                                let base_norm = crate::utils::normalize_path_with_current_dir(base);
+                                match p_norm.strip_prefix(&base_norm) {
+                                    Ok(rel) => rel.to_string_lossy().replace('\\', "/"),
+                                    Err(_) => p_norm.to_string_lossy().replace('\\', "/"),
+                                }
+                            } else {
+                                p_norm.to_string_lossy().replace('\\', "/")
+                            };
+                            builder.add_source(&src_name);
+                        }
+                    }
+
                     // Set the sourcemap "file". If an explicit override is provided, use it; otherwise
                     // compute from the generated output path, respecting the same relative base.
                     {

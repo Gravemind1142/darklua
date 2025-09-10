@@ -756,6 +756,40 @@ mod sourcemap_emit {
         assert!(src_name.ends_with("src/value.lua"), "mapped source should be src/value.lua, got: {}", src_name);
         assert_eq!(src_line0, 0, "expected mapping to first line of value.lua");
     }
+
+    #[test]
+    fn retain_lines_sources_list_contains_all_files() {
+        let resources = memory_resources!(
+            "src/value.lua" => "return true\n",
+            "src/main.lua" => "local value = require('./value.lua')\n",
+            ".darklua.json" => DARKLUA_BUNDLE_RETAIN_LINES_WITH_SOURCEMAP,
+        );
+
+        process(
+            &resources,
+            Options::new("src/main.lua").with_output("out.lua"),
+        )
+        .unwrap()
+        .result()
+        .unwrap();
+
+        let map = resources.get("out.lua.map").expect("sourcemap must be written");
+
+        let value: serde_json::Value = serde_json::from_str(&map).expect("valid JSON sourcemap");
+        let sources = value
+            .get("sources")
+            .and_then(|v| v.as_array())
+            .expect("sources must be an array");
+
+        let sources_str: Vec<&str> = sources
+            .iter()
+            .filter_map(|s| s.as_str())
+            .collect();
+
+        assert!(sources_str.contains(&"src/main.lua"), "sources should include src/main.lua, got: {:?}", sources_str);
+        assert!(sources_str.contains(&"src/value.lua"), "sources should include src/value.lua, got: {:?}", sources_str);
+        assert_eq!(sources_str.len(), 2, "unexpected extra sources: {:?}", sources_str);
+    }
 }
 
 #[test]
