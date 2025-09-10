@@ -1382,13 +1382,15 @@ impl MappingRecorder {
                 reg_borrow
                     .get_path(src_id)
                     .map(|p| {
+                        let p_norm = crate::utils::normalize_path_with_current_dir(p);
                         if let Some(base) = &self.relative_base {
-                            match p.strip_prefix(base) {
+                            let base_norm = crate::utils::normalize_path_with_current_dir(base);
+                            match p_norm.strip_prefix(&base_norm) {
                                 Ok(rel) => rel.to_string_lossy().replace('\\', "/"),
-                                Err(_) => p.to_string_lossy().replace('\\', "/"),
+                                Err(_) => p_norm.to_string_lossy().replace('\\', "/"),
                             }
                         } else {
-                            p.to_string_lossy().replace('\\', "/")
+                            p_norm.to_string_lossy().replace('\\', "/")
                         }
                     })
             } else { None };

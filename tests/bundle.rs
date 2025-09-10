@@ -759,10 +759,13 @@ mod sourcemap_emit {
 
     #[test]
     fn retain_lines_sources_list_contains_all_files() {
+        // Configure sourcemap to make sources relative to the `src` directory
+        let cfg_with_relative_sources = r#"{ "rules": [], "generator": "retain_lines", "bundle": { "require_mode": "path", "sourcemap": { "enabled": true, "output_path": "out.lua.map", "sources_relative_to": "src" } } }"#;
+
         let resources = memory_resources!(
             "src/value.lua" => "return true\n",
             "src/main.lua" => "local value = require('./value.lua')\n",
-            ".darklua.json" => DARKLUA_BUNDLE_RETAIN_LINES_WITH_SOURCEMAP,
+            ".darklua.json" => cfg_with_relative_sources,
         );
 
         process(
@@ -786,8 +789,9 @@ mod sourcemap_emit {
             .filter_map(|s| s.as_str())
             .collect();
 
-        assert!(sources_str.contains(&"src/main.lua"), "sources should include src/main.lua, got: {:?}", sources_str);
-        assert!(sources_str.contains(&"src/value.lua"), "sources should include src/value.lua, got: {:?}", sources_str);
+        // With sources_relative_to = "src", entries should be relative to that base
+        assert!(sources_str.contains(&"main.lua"), "sources should include main.lua, got: {:?}", sources_str);
+        assert!(sources_str.contains(&"value.lua"), "sources should include value.lua, got: {:?}", sources_str);
         assert_eq!(sources_str.len(), 2, "unexpected extra sources: {:?}", sources_str);
     }
 }
