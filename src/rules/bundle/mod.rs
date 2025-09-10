@@ -146,6 +146,16 @@ impl Bundler {
         self
     }
 
+    /// Use an external shared SourceRegistry so that source ids remain consistent
+    /// across the entry file, bundled modules, and sourcemap generation.
+    pub(crate) fn with_registry(
+        mut self,
+        registry: Rc<RefCell<SourceRegistry>>,
+    ) -> Self {
+        self.options.registry = registry;
+        self
+    }
+
     pub(crate) fn with_project_root(mut self, project_root: impl Into<std::path::PathBuf>) -> Self {
         self.options.project_root = Some(project_root.into());
         self.options.rebuild_excludes();

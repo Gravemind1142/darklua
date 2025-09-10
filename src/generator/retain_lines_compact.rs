@@ -2,8 +2,11 @@ use std::collections::HashSet;
 use std::iter;
 
 use sourcemap::SourceMapBuilder;
+use std::rc::Rc;
+use std::cell::RefCell;
 
 use crate::generator::{utils, LuaGenerator};
+use crate::utils::source_registry::SourceRegistry;
 use crate::nodes::*;
 
 /// A variant of the token-based generator that retains original token text and
@@ -53,25 +56,18 @@ impl<'a> RetainLinesCompactLuaGenerator<'a> {
         }
     }
 
-    pub fn with_sourcemap(self, builder: SourceMapBuilder) -> Self {
-        let mut s = self;
-        s.mapping = Some(std::rc::Rc::new(std::cell::RefCell::new(MappingRecorder::new(
-            builder,
-            Vec::new(),
-        ))));
-        s
-    }
-
-    /// Attach a sourcemap builder with known source paths indexed by source_id.
-    pub fn with_sourcemap_and_sources(
+    /// Attach a sourcemap builder with a shared source registry for resolving source_id → path.
+    pub fn with_sourcemap(
         self,
         builder: SourceMapBuilder,
-        sources: Vec<String>,
+        registry: Rc<RefCell<SourceRegistry>>,
+        relative_base: Option<std::path::PathBuf>,
     ) -> Self {
         let mut s = self;
         s.mapping = Some(std::rc::Rc::new(std::cell::RefCell::new(MappingRecorder::new(
             builder,
-            sources,
+            Some(registry),
+            relative_base,
         ))));
         s
     }
@@ -1373,14 +1369,30 @@ impl RetainLinesCompactLuaGenerator<'_> {
 struct MappingRecorder {
     builder: SourceMapBuilder,
     recorded_lines: HashSet<usize>,
-    sources: Vec<String>,
+    registry: Option<Rc<RefCell<SourceRegistry>>>,
+    relative_base: Option<std::path::PathBuf>,
 }
 
 impl MappingRecorder {
-    fn new(builder: SourceMapBuilder, sources: Vec<String>) -> Self { Self { builder, recorded_lines: HashSet::new(), sources } }
+    fn new(builder: SourceMapBuilder, registry: Option<Rc<RefCell<SourceRegistry>>>, relative_base: Option<std::path::PathBuf>) -> Self { Self { builder, recorded_lines: HashSet::new(), registry, relative_base } }
     fn record_line(&mut self, dst_line0: usize, src_line0: usize, src_id: u32) {
         if self.recorded_lines.insert(dst_line0) {
-            let source_name = self.sources.get(src_id as usize).map(|s| s.as_str());
+            let source_name_string: Option<String> = if let Some(reg) = &self.registry {
+                let reg_borrow = reg.borrow();
+                reg_borrow
+                    .get_path(src_id)
+                    .map(|p| {
+                        if let Some(base) = &self.relative_base {
+                            match p.strip_prefix(base) {
+                                Ok(rel) => rel.to_string_lossy().replace('\\', "/"),
+                                Err(_) => p.to_string_lossy().replace('\\', "/"),
+                            }
+                        } else {
+                            p.to_string_lossy().replace('\\', "/")
+                        }
+                    })
+            } else { None };
+            let source_name = source_name_string.as_deref();
             self.builder.add(dst_line0 as u32, 0, src_line0 as u32, 0, source_name, None, false);
         }
     }

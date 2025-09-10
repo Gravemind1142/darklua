@@ -16,6 +16,8 @@ use crate::{
     GeneratorParameters,
 };
 
+use crate::utils::source_registry::SourceRegistry;
+
 use crate::process::set_instance_indexing_is_pure;
 use crate::process::{clear_known_instance_aliases, set_known_instance_aliases};
 use crate::rules::ReplaceReferencedTokens;
@@ -112,6 +114,7 @@ pub(crate) struct Worker<'a> {
     cache: WorkCache<'a>,
     configuration: Configuration,
     cached_bundler: Option<Bundler>,
+    shared_registry: std::rc::Rc<std::cell::RefCell<SourceRegistry>>,
 }
 
 impl<'a> Worker<'a> {
@@ -121,6 +124,7 @@ impl<'a> Worker<'a> {
             cache: WorkCache::new(resources),
             configuration: Configuration::default(),
             cached_bundler: None,
+            shared_registry: std::rc::Rc::new(std::cell::RefCell::new(SourceRegistry::new())),
         }
     }
 
@@ -220,12 +224,6 @@ impl<'a> Worker<'a> {
 
                 let content = self.resources.get(work_item.source())?;
 
-                // Ensure bundler is initialized early so we can share its source registry
-                if self.cached_bundler.is_none() {
-                    if let Some(bundler) = self.configuration.bundle() {
-                        self.cached_bundler = Some(bundler);
-                    }
-                }
 
                 let parser = self.configuration.build_parser();
 
@@ -235,30 +233,21 @@ impl<'a> Worker<'a> {
 
                 let mut block = {
                     // If sourcemaps are enabled for bundling, parse the entry file with the
-                    // bundler's registry source_id so that sourcemap indices align.
-                    let use_bundler_registry = self
-                        .cached_bundler
-                        .as_ref()
-                        .map(|b| b.options().is_sourcemap_enabled())
-                        .unwrap_or(false)
-                        && self.configuration.is_retain_lines();
+                    // shared registry source_id so that sourcemap indices align.
+                    let sourcemap_requested = self
+                        .configuration
+                        .bundle_config()
+                        .and_then(|bundle| bundle.sourcemap())
+                        .map_or(false, |sm| sm.enabled);
+                    let use_shared_registry = sourcemap_requested && self.configuration.is_retain_lines();
 
-                    if use_bundler_registry {
-                        if let Some(bundler) = self.cached_bundler.as_ref() {
-                            let registry = bundler.options().registry();
-                            let source_id = registry.borrow_mut().intern(work_item.source());
-                            parser
-                                .parse_with_source_id(source_id, &content)
-                                .map_err(|parser_error| {
-                                    DarkluaError::parser_error(work_item.source(), parser_error)
-                                })?
-                        } else {
-                            parser
-                                .parse(&content)
-                                .map_err(|parser_error| {
-                                    DarkluaError::parser_error(work_item.source(), parser_error)
-                                })?
-                        }
+                    if use_shared_registry {
+                        let source_id = self.shared_registry.borrow_mut().intern(work_item.source());
+                        parser
+                            .parse_with_source_id(source_id, &content)
+                            .map_err(|parser_error| {
+                                DarkluaError::parser_error(work_item.source(), parser_error)
+                            })?
                     } else {
                         parser
                             .parse(&content)
@@ -492,18 +481,6 @@ impl<'a> Worker<'a> {
                         builder.set_source_root(Some(root.as_str()));
                     }
 
-                    // Collect known source paths from the bundler if available
-                    let mut sources: Vec<String> = match self.cached_bundler.as_ref() {
-                        Some(b) => {
-                            let srcs = b.options().source_paths_snapshot();
-                            log::trace!("Bundler source paths for sourcemap: {:?}", srcs);
-                            srcs
-                        }
-                        None => {
-                            log::trace!("No bundler available, no source paths for sourcemap");
-                            Vec::new()
-                        }
-                    };
 
                     // Optionally relativize source paths to avoid leaking absolute paths
                     let relative_base: Option<std::path::PathBuf> = if let Some(root) = &sm.relative_to {
@@ -522,19 +499,6 @@ impl<'a> Worker<'a> {
                         None
                     };
 
-                    if let Some(base) = relative_base.as_ref() {
-                        let base = crate::utils::normalize_path_with_current_dir(base);
-                        sources = sources
-                            .into_iter()
-                            .map(|s| {
-                                let p = std::path::Path::new(&s);
-                                match p.strip_prefix(&base) {
-                                    Ok(rel) => rel.to_string_lossy().replace('\\', "/"),
-                                    Err(_) => s,
-                                }
-                            })
-                            .collect();
-                    }
 
                     // Set the sourcemap "file". If an explicit override is provided, use it; otherwise
                     // compute from the generated output path, respecting the same relative base.
@@ -557,17 +521,16 @@ impl<'a> Worker<'a> {
                         }
                     }
 
-                    for s in &sources { builder.add_source(s); }
 
                     // Choose retain-lines variant with sourcemap support
                     let (code, map_opt) = if let Some(max_empty) = self.configuration.retain_lines_compact_max_empty() {
                         let mut gen = crate::generator::RetainLinesCompactLuaGenerator::new(&work_progress.content, max_empty)
-                            .with_sourcemap_and_sources(builder, sources);
+                            .with_sourcemap(builder, self.shared_registry.clone(), relative_base.clone());
                         gen.write_block(progress.block());
                         gen.into_string_and_sourcemap()
                     } else {
                         let mut gen = crate::generator::TokenBasedLuaGenerator::new(&work_progress.content)
-                            .with_sourcemap_and_sources(builder, sources);
+                            .with_sourcemap(builder, self.shared_registry.clone(), relative_base.clone());
                         gen.write_block(progress.block());
                         gen.into_string_and_sourcemap()
                     };
@@ -652,7 +615,7 @@ impl<'a> Worker<'a> {
 
             if sourcemap_requested {
                 log::warn!(
-                    "sourcemap generation requested for `{}` but current generator mode does not support sourcemaps; enable the `retain_lines` generator to produce sourcemaps",
+                    "sourcemap generation requested for `{}` but current generator mode does not support sourcemaps; enable the `retain_lines` or `retain_lines_compact` generator to produce sourcemaps",
                     source_display
                 );
             } else {
@@ -702,7 +665,8 @@ impl<'a> Worker<'a> {
     ) -> DarkluaResult<()> {
         if self.cached_bundler.is_none() {
             if let Some(bundler) = self.configuration.bundle() {
-                self.cached_bundler = Some(bundler);
+                // Ensure bundler uses the shared registry so source_id indices are unified
+                self.cached_bundler = Some(bundler.with_registry(self.shared_registry.clone()));
             }
         }
         let bundler = match self.cached_bundler.as_ref() {
